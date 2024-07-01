@@ -20,8 +20,8 @@ def launch_jz_submission(config, gpu=True):
     with open(f"sbatch_files/sbatch_{hash}.sh", "w") as f:
         f.write(f"#!/bin/bash\n")
         f.write(f"#SBATCH --job-name=xval_{hash}\n")
-        f.write(f"#SBATCH --output=xval_{hash}.out\n")
-        f.write(f"#SBATCH --error=xval_{hash}.err\n")
+        f.write(f"#SBATCH --output=log_files/{hash}.out\n")
+        f.write(f"#SBATCH --error=log_files/{hash}.err\n")
         f.write(f"#SBATCH -n 1\n")
         f.write("#SBATCH --cpus-per-task=10\n")
         f.write("#SBATCH --ntasks-per-node=1\n")
@@ -41,7 +41,7 @@ def launch_jz_submission(config, gpu=True):
 #SBATCH --gpus-per-task=${NUM_GPUS_PER_NODE}
 #SBATCH --hint=nomultithread         # hyperthreading desactive
         #f.write(f"module load pytorch-gpu/py3/2.1.1\n")
-        f.write(f"module load  pytorch-gpu/py3/1.13.0\n")
+        f.write(f"module load pytorch-gpu/py3/1.13.0\n")
         #f.write(f"conda activate numerical_embeddings\n")
         command = "python evaluate_method_args.py"
         for key, value in config_copy.items():
@@ -56,4 +56,4 @@ def launch_jz_submission(config, gpu=True):
 
 for model in ["dummy_sampler", "gaussian_noise"]:
     for task in tasks:
-        launch_jz_submission({"model": model, "task_id": task})
+        launch_jz_submission({"model_name": model, "task_id": task}, gpu=False)
