@@ -11,7 +11,7 @@ gpu_models = [ "tabpfn_points", "ddpm", "ctgan", "tvae"]
 cpu_models = ["arf", "smote", "forest_diffusion", "smote_imblearn", "gaussian_noise", "dummy_sampler"]
 #cpu_models = ["dummy_sampler"]
 
-def launch_jz_submission(config, gpu=True):
+def launch_jz_submission(config, filename="", gpu=True):
     config_copy = config.copy()
     print("config_copy", config_copy)
     #config_string = "_".join([f"{k}={v}" for k, v in config_copy.items()])
@@ -49,11 +49,12 @@ def launch_jz_submission(config, gpu=True):
         #f.write(f"python train_xval_args.py --{param} {variant} --iter {iter}\n")
         f.write(command)
     # submit the sbatch file
-    print("Submitting sbatch file", f"sbatch_files/sbatch_{hash}.sh")
-    os.system(f"sbatch sbatch_files/sbatch_{hash}.sh")
+    print("Submitting sbatch file", f"sbatch_files/sbatch_{filename}_{hash}.sh")
+    os.system(f"sbatch sbatch_files/sbatch_{filename}_{hash}.sh")
     print("Submitted")
 
 
 for model in ["dummy_sampler", "gaussian_noise"]:
     for task in tasks:
-        launch_jz_submission({"model_name": model, "task_id": task}, gpu=False)
+        launch_jz_submission({"model_name": model, "task_id": task}, gpu=False, 
+                             filename=f"{model}_{task}")

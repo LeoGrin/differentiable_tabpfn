@@ -79,6 +79,7 @@ def run_model_on_dataset(model_name, task_id, results_base_dir="results", normal
         # create the folders if they don't exist
         os.makedirs(results_base_dir, exist_ok=True)
         os.makedirs(f"{results_base_dir}/{dataset_name}", exist_ok=True)
+        os.makedirs(f"{results_base_dir}/{dataset_name}/{model_name}", exist_ok=True)
         config = {"model_name": model_name, "task_id": task_id, "normalization": normalization, "X_true_n_rows": X.shape[0], 
                   "X_true_n_cols": X.shape[1], "synthetic_size": synthetic_size, "task_type": task_type}
         config.update(hp_dic_original)
@@ -90,11 +91,11 @@ def run_model_on_dataset(model_name, task_id, results_base_dir="results", normal
         # with open(f"{results_base_dir}/{dataset_name}/{config_hash}/config.pkl", "wb") as f:
         #     pickle.dump(config, f)
         # save config as json
-        with open(f"{results_base_dir}/{dataset_name}/{config_hash}/config.json", "w") as f:
+        with open(f"{results_base_dir}/{dataset_name}/{model_name}/{config_hash}/config.json", "w") as f:
             json.dump(config, f)
         # save the scores
-        score.to_csv(f"{results_base_dir}/{dataset_name}/{config_hash}/scores.csv")
-        score_train.to_csv(f"{results_base_dir}/{dataset_name}/{config_hash}/scores_train.csv")
+        score.to_csv(f"{results_base_dir}/{dataset_name}/{model_name}/{config_hash}/scores.csv")
+        score_train.to_csv(f"{results_base_dir}/{dataset_name}/{model_name}/{config_hash}/scores_train.csv")
     else:
         return score, score_train
 
