@@ -57,7 +57,6 @@ def run_model_on_dataset(model_name, task_id, results_base_dir="results", normal
         loader,
         synthetic_size=synthetic_size,
         repeats=3,
-        verbose=100,
         task_type=task_type
     )[model_name]
     score_train = Benchmarks.evaluate(
@@ -66,7 +65,6 @@ def run_model_on_dataset(model_name, task_id, results_base_dir="results", normal
         loader,
         synthetic_size=synthetic_size,
         repeats=3,
-        verbose=100,
         task_type=task_type
     )[model_name]
 
