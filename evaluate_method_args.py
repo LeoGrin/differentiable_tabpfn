@@ -84,7 +84,7 @@ def run_model_on_dataset(model_name, task_id, results_base_dir="results", normal
                   "X_true_n_cols": X.shape[1], "synthetic_size": synthetic_size, "task_type": task_type}
         config.update(hp_dic_original)
         # hash config
-        config_hash = hashlib.sha256(pickle.dumps(config)).hexdigest()
+        config_hash = hashlib.sha256(pickle.dumps(config)).hexdigest()[:16]
         # create a new folder
         os.makedirs(f"{results_base_dir}/{dataset_name}/{config_hash}", exist_ok=True)
         # save the config
