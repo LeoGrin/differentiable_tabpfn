@@ -27,6 +27,7 @@ def run_model_on_dataset(model_name, task_id, results_base_dir="results", normal
     print(f"Running {model_name} on {dataset_name}")
     # kwargs are the hyperparameters
     hp_dic = kwargs
+    hp_dic.update({"strict": False})
     print("hp_dic", hp_dic)
     hp_dic_original = hp_dic.copy()
     hp_str = "_".join([f"{k}_{v}" for k, v in hp_dic.items()]) # before it's modified by synthcity
