@@ -25,10 +25,19 @@ cpu_models = ["arf", "smote", "forest_diffusion", "smote_imblearn", "gaussian_no
 executor_gpu = submitit.AutoExecutor(folder="submitit_logs")
 executor_gpu.update_parameters(timeout_min=2000, slurm_array_parallelism=5,#, cpus_per_task=2,
                                      gpus_per_node=1)
-executor.update_parameters(timeout_min=2000, slurm_array_parallelism=array_parallelism)
+                    #f.write("#SBATCH --account=def-lgrinszt\n")
+
+executor_gpu.update_parameters(
+     slurm_account="ptq@v100"
+)
+    #  cpus_per_task=10,
+    #  gpus_per_node=1,
+    #  time="30:00:00")
+
 executor_cpu = submitit.AutoExecutor(folder="submitit_logs")
 executor_cpu.update_parameters(
-                                         timeout_min=2000, slurm_array_parallelism=100)
+                                         timeout_min=2000, slurm_array_parallelism=100,
+                                         slurm_account="ptq@v100")
 
 
 def run_model_on_dataset(model_name, task_id, hp_dic, save_results=True):
