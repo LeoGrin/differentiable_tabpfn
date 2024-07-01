@@ -86,7 +86,7 @@ def run_model_on_dataset(model_name, task_id, results_base_dir="results", normal
         # hash config
         config_hash = hashlib.sha256(pickle.dumps(config)).hexdigest()[:16]
         # create a new folder
-        os.makedirs(f"{results_base_dir}/{dataset_name}/{config_hash}", exist_ok=True)
+        os.makedirs(f"{results_base_dir}/{dataset_name}/{model_name}/{config_hash}", exist_ok=True)
         # save the config
         # with open(f"{results_base_dir}/{dataset_name}/{config_hash}/config.pkl", "wb") as f:
         #     pickle.dump(config, f)
