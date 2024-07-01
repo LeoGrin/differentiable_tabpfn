@@ -3,7 +3,7 @@ import os
 import hashlib
 
 suite_id = 336
-tasks = openml.study.get_suite(suite_id).tasks[:9]
+tasks = openml.study.get_suite(suite_id).tasks[:10]
 
 tag = ["no_subsample_in_metric"]
 
@@ -56,7 +56,34 @@ def launch_jz_submission(config, filename="", gpu=True):
     print("Submitted")
 
 
-for model in ["dummy_sampler", "gaussian_noise"]:
+param_variations = {
+    "n_test_from_false_train": [256, 512], 
+    "n_batches": [200, 500], 
+    "init_scale_factor": [10.],
+    "n_permutations": [5, 7],
+    "n_ensembles": [5, 7],
+    "n_random_features_to_add": [0, 2, 5],
+    "random_test_points_scale": [3],
+}
+
+default_params = {
+    "n_test_from_false_train": 0,
+    "n_batches": 100,
+    "init_scale_factor": 5.,
+    "n_permutations": 5,
+    "n_ensembles": 5,
+    "n_random_features_to_add": 1,
+    "random_test_points_scale": 2,
+}
+
+for model in ["tabpfn_points"]:
     for task in tasks:
-        launch_jz_submission({"model_name": model, "task_id": task}, gpu=False, 
-                             filename=f"{model}_{task}")
+        for param, variations in param_variations.items():
+            for variation in variations:
+                config = default_params.copy()
+                config[param] = variation
+                config["model_name"] = model
+                config["task_id"] = task
+                launch_jz_submission(config, gpu=True, filename=f"{model}_{task}_{param}_{variation}")
+                    # launch_jz_submission({"model_name": model, "task_id": task, "n_test_from_false_train": n_test_from_false_train, "n_batches": n_batches, "init_scale_factor": init_scale_factor}, gpu=True, 
+                    #          filename=f"{model}_{task}")

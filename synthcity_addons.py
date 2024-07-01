@@ -62,17 +62,17 @@ class gaussian_noise_plugin(Plugin):
     def sample(self, count: int, **kwargs: Any) -> pd.DataFrame:
         if count > len(self.X):
             raise ValueError("Requested count exceeds the available data.")
-        
         indices = np.random.choice(len(self.X), count, replace=False)
         selected_points = self.X[indices]
         noise = np.random.normal(0., self.noise_std, selected_points.shape)
         noisy_points = selected_points + noise
-        print("sample")
+        print("sample", count, len(noisy_points))
         
         return noisy_points
     
     def _generate(self, count: int, syn_schema: Schema, **kwargs: Any) -> pd.DataFrame:
         return self._safe_generate(self.sample, count, syn_schema)
+
 
 class tabpfn_points_plugin(Plugin):
     """TabPFN integration in synthcity."""
@@ -86,6 +86,10 @@ class tabpfn_points_plugin(Plugin):
         n_permutations: int = 3,
         n_ensembles: int = 3,
         store_intermediate_data: bool = False,
+        n_test_from_false_train: int = 0,
+        n_random_features_to_add: int = 1,
+        random_test_points_scale: float = 2,
+        init_scale_factor: float = 5,
         **kwargs: Any
     ) -> None:
         super().__init__(**kwargs)
@@ -97,6 +101,10 @@ class tabpfn_points_plugin(Plugin):
         self.n_ensembles = n_ensembles
         self.preprocessor = StandardScaler()
         self.store_intermediate_data = store_intermediate_data
+        self.n_test_from_false_train = n_test_from_false_train
+        self.n_random_features_to_add = n_random_features_to_add
+        self.random_test_points_scale = random_test_points_scale
+        self.init_scale_factor = init_scale_factor
         if store_intermediate_data:
             self.loss_list = []
             self.all_X_false_train = []
@@ -122,15 +130,19 @@ class tabpfn_points_plugin(Plugin):
             IntegerDistribution(name="n_iter", low=100, high=500, step=50),
         ]
 
-    def _fit(self, X: DataLoader, *args: Any, **kwargs: Any) -> "tabpfn_points_plugin":
-        X_false_train = (np.random.rand(512, X.shape[1]) * 4 - 2) / 5.
+    def _fit(self, X: DataLoader, X_false_train_init=None, *args: Any, **kwargs: Any) -> "tabpfn_points_plugin":
+        if X_false_train_init is None:
+            X_false_train = (np.random.rand(512, X.shape[1]) * 2 * self.random_test_points_scale - self.random_test_points_scale) / self.init_scale_factor
+        else:
+            X_false_train = X_false_train_init
         self.X_false_train = torch.tensor(X_false_train).float().to(self.device)
         self.X_false_train.requires_grad = True
         X_true = self.preprocessor.fit_transform(X.numpy()) # all numerical features for now
         X_true = torch.tensor(X_true, dtype=torch.float32).to(self.device)
-        X_random_test = np.random.rand(self.n_random_test_samples, X.shape[1]) * 4 - 2
+        X_random_test = np.random.rand(self.n_random_test_samples, X.shape[1]) * 2 * self.random_test_points_scale - self.random_test_points_scale
         X_random_test = torch.tensor(X_random_test).float().to(self.device)
 
+        
         optimizer = torch.optim.Adam([self.X_false_train], lr=self.lr)
 
         tabpfn_classifier = TabPFNClassifier(device=self.device, N_ensemble_configurations=self.n_permutations,
@@ -145,8 +157,13 @@ class tabpfn_points_plugin(Plugin):
                 X_batch_train = X_true[indices_train]
                 indices_test = np.random.choice(X_true.shape[0], n_test, replace=False)
                 X_batch_test = X_true[indices_test]
-                indices_false_test = np.random.choice(X_random_test.shape[0], len(X_batch_test), replace=False)
-                X_false_test = X_random_test[indices_false_test]
+                #indices_false_test = np.random.choice(X_random_test.shape[0], len(X_batch_test), replace=False)
+                #X_false_test = X_random_test[indices_false_test]
+                indices_false_test_from_random = np.random.choice(X_random_test.shape[0], len(X_batch_test) - self.n_test_from_false_train, replace=False)
+                X_false_test_from_random = X_random_test[indices_false_test_from_random]
+                indices_false_test_from_false_train = np.random.choice(self.X_false_train.shape[0], self.n_test_from_false_train, replace=False)
+                X_false_test_from_false_train = self.X_false_train.detach()[indices_false_test_from_false_train]
+                X_false_test = torch.cat((X_false_test_from_random, X_false_test_from_false_train), dim=0)
 
                 indices_false_train = np.random.choice(self.X_false_train.shape[0], len(X_batch_train), replace=False)
                 X_false_batch_train = self.X_false_train[indices_false_train]
@@ -166,8 +183,9 @@ class tabpfn_points_plugin(Plugin):
                 y_test = y_test[perm_test]
 
                 # add a third feature to X_train and X_test with random values
-                X_train = torch.cat((X_train, torch.randn(X_train.shape[0], 1).to(self.device)), dim=1)
-                X_test = torch.cat((X_test, torch.randn(X_test.shape[0], 1).to(self.device)), dim=1)
+                if self.n_random_features_to_add > 0:
+                    X_train = torch.cat((X_train, torch.randn(X_train.shape[0], self.n_random_features_to_add).to(self.device)), dim=1)
+                    X_test = torch.cat((X_test, torch.randn(X_test.shape[0], self.n_random_features_to_add).to(self.device)), dim=1)
                 tabpfn_classifier.fit(X_train, y_train, overwrite_warning=True)
                 tabpfn_output_proba = tabpfn_classifier.predict_proba(X_test)
                 tabpfn_output_proba_list.append(tabpfn_output_proba)
@@ -182,6 +200,8 @@ class tabpfn_points_plugin(Plugin):
             if self.store_intermediate_data:
                 self.loss_list.append(loss.item())
                 self.all_X_false_train.append(self.X_false_train.detach().cpu().numpy())
+    
+        return tabpfn_output_proba.detach().cpu(), self.X_false_train.detach().cpu(), y_test.detach().cpu()
 
     def sample(self, count: int, **kwargs: Any) -> pd.DataFrame:
         if count > len(self.X_false_train):
