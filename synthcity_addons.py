@@ -197,6 +197,9 @@ class tabpfn_points_plugin(Plugin):
             optimizer.step()
             optimizer.zero_grad()
 
+            if batch % 10 == 0:
+                print(f"Batch {batch} loss: {loss.item()}")
+
             if self.store_intermediate_data:
                 self.loss_list.append(loss.item())
                 self.all_X_false_train.append(self.X_false_train.detach().cpu().numpy())
