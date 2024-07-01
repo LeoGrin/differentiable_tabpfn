@@ -1,0 +1,9 @@
+submitit_logs/
+*.pkl
+*.pickle
+*.pickle
+results/
+results_with_y
+__pycache__
+figures
+workspace
