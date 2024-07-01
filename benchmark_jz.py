@@ -10,6 +10,7 @@ from synthcity.plugins.core.dataloader import GenericDataLoader
 import os
 from synthcity_addons import generators
 from sklearn.preprocessing import QuantileTransformer
+import hashlib
 
 suite_id = 336
 tasks = openml.study.get_suite(suite_id).tasks[:9]
@@ -21,25 +22,6 @@ cpu_models = ["arf", "smote", "forest_diffusion", "smote_imblearn", "gaussian_no
 #cpu_models = ["dummy_sampler"]
 #cpu_models = ["gaussian_noise"]
 
-
-executor_gpu = submitit.AutoExecutor(folder="submitit_logs")
-executor_gpu.update_parameters(timeout_min=2000, slurm_array_parallelism=5,#, cpus_per_task=2,
-                                     gpus_per_node=1)
-                    #f.write("#SBATCH --account=def-lgrinszt\n")
-
-executor_gpu.update_parameters(
-     slurm_account="ptq@v100"
-)
-    #  cpus_per_task=10,
-    #  gpus_per_node=1,
-    #  time="30:00:00")
-
-executor_cpu = submitit.AutoExecutor(folder="submitit_logs")
-executor_cpu.update_parameters(
-                                         timeout_min=2000, slurm_array_parallelism=100,
-                                         slurm_account="ptq@v100")
-
-
 def run_model_on_dataset(model_name, task_id, hp_dic, save_results=True):
     from synthcity_addons import generators
     task = openml.tasks.get_task(task_id)
@@ -50,7 +32,7 @@ def run_model_on_dataset(model_name, task_id, hp_dic, save_results=True):
     hp_str = "_".join([f"{k}_{v}" for k, v in hp_dic.items()]) # before it's modified by synthcity
     X, y, _, _ = dataset.get_data(target=dataset.default_target_attribute)
     # add target to X
-    #X["target"] = y
+    X["target"] = y
     # restrict X to 20K random samples
     if X.shape[0] > 20000:
         X = X.sample(20000, random_state=42)
@@ -61,7 +43,7 @@ def run_model_on_dataset(model_name, task_id, hp_dic, save_results=True):
     normalization = hp_dic.pop("normalization", None)
     if normalization == "quantile":
         X = QuantileTransformer(n_quantiles=100, random_state=42).fit_transform(X)
-    loader = GenericDataLoader(X)#, #target_column="target")
+    loader = GenericDataLoader(X, target_column="target")
 
     print("Loaded")
 
@@ -105,34 +87,49 @@ def run_model_on_dataset(model_name, task_id, hp_dic, save_results=True):
     else:
         return score, score_train
 
-#run_model_on_dataset("forest_diffusion", tasks[1])
+def launch_jz_submission(config, gpu=True):
+    config_copy = config.copy()
+    print("config_copy", config_copy)
+    #config_string = "_".join([f"{k}={v}" for k, v in config_copy.items()])
+    # hash the config
+    hash = hashlib.sha256(str(config_copy).encode()).hexdigest()
+    with open(f"sbatch_files/sbatch_{hash}.sh", "w") as f:
+        f.write(f"#!/bin/bash\n")
+        f.write(f"#SBATCH --job-name=xval_{hash}\n")
+        f.write(f"#SBATCH --output=xval_{hash}.out\n")
+        f.write(f"#SBATCH --error=xval_{hash}.err\n")
+        f.write(f"#SBATCH -n 1\n")
+        f.write("#SBATCH --cpus-per-task=10\n")
+        f.write("#SBATCH --ntasks-per-node=1\n")
+        if gpu:
+            f.write("#SBATCH --gpus-per-task=1\n")
+        f.write("#SBATCH --hint=nomultithread\n")
+        f.write("#SBATCH --time=20:00:00\n")
+        if gpu:
+            f.write("#SBATCH -A ptq@v100\n")
+            #f.write("#SBATCH -C v100-32g\n")
+        else:
+            f.write("#SBATCH -A ptq@cpu\n")
+
+##SBATCH --ntasks-per-node=${NUM_GPUS_PER_NODE}
+#SBATCH --ntasks-per-node=1
+##SBATCH --gres=gpu:${NUM_GPUS_PER_NODE}
+#SBATCH --gpus-per-task=${NUM_GPUS_PER_NODE}
+#SBATCH --hint=nomultithread         # hyperthreading desactive
+        #f.write(f"module load pytorch-gpu/py3/2.1.1\n")
+        f.write(f"module load  pytorch-gpu/py3/1.13.0\n")
+        #f.write(f"conda activate numerical_embeddings\n")
+        command = "python evaluate_method_args.py"
+        for key, value in config_copy.items():
+            command += f" --{key} {value}"
+        #f.write(f"python train_xval_args.py --{param} {variant} --iter {iter}\n")
+        f.write(command)
+    # submit the sbatch file
+    print("Submitting sbatch file", f"sbatch_files/sbatch_{hash}.sh")
+    os.system(f"sbatch sbatch_files/sbatch_{hash}.sh")
+    print("Submitted")
 
 
-hps = {"normalization": "quantile"}
-
-# with executor_gpu.batch():
-#     for model in gpu_models:
-#         for task_id in tasks:
-#             #hp_dic = {"n_permutations": n_permutations, "n_ensembles": n_ensembles}
-#             hp_dic = {}
-#             hp_dic.update(hps)
-#             executor_gpu.submit(run_model_on_dataset, model, task_id, hp_dic)
-
-with executor_cpu.batch():
-    for model in ["gaussian_noise"]:
-#         #for noise_std in [0.0000001]
-#     for model in cpu_model
-        for task_id in tasks:
-#                 #hp_dic = {"noise_std": noise_std}
-            hp_dic = {}
-            hp_dic.update(hps)
-            executor_cpu.submit(run_model_on_dataset, model, task_id, hp_dic)
-
-#if __name__ == "__main__":
-#    hp_dic = {}#{"n_batches": 10}
-#    score, score_train = run_model_on_dataset("dummy_sampler", tasks[0], hp_dic, save_results=False)
-#    print(score["dummy_sampler"])
-    #print(score["tabpfn_points"].columns)
-    #print(score["tabpfn_points"].index)
-    #print(score_train["tabpfn_points"])
-
+for model in ["dummy_sampler", "gaussian_noise"]:
+    for task in tasks:
+        launch_jz_submission({"model": model, "task_id": task})
