@@ -21,9 +21,9 @@ def launch_jz_submission(config, filename="", gpu=True):
     hash = hashlib.sha256(str(config_copy).encode()).hexdigest()[:16]
     with open(f"sbatch_files/sbatch_{filename}_{hash}.sh", "w") as f:
         f.write(f"#!/bin/bash\n")
-        f.write(f"#SBATCH --job-name=xval_{hash}\n")
-        f.write(f"#SBATCH --output=log_files/{hash}.out\n")
-        f.write(f"#SBATCH --error=log_files/{hash}.err\n")
+        f.write(f"#SBATCH --job-name=synth_{filename}_{hash}\n")
+        f.write(f"#SBATCH --output=log_files/{filename}_{hash}.out\n")
+        f.write(f"#SBATCH --error=log_files/{filename}_{hash}.err\n")
         f.write(f"#SBATCH -n 1\n")
         f.write("#SBATCH --cpus-per-task=10\n")
         f.write("#SBATCH --ntasks-per-node=1\n")
