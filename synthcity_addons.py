@@ -273,12 +273,14 @@ class smote_plugin(Plugin):
         k_neighbors: int = 5,
         lam_min: float = 0.0,
         lam_max: float = 1.0,
+        add_noise_std: float = 0.0,
         **kwargs: Any
     ) -> None:
         super().__init__(**kwargs)
         self.k_neighbors = k_neighbors
         self.lam_min = lam_min
         self.lam_max = lam_max
+        self.add_noise_std = add_noise_std
 
     @staticmethod
     def name() -> str:
@@ -323,7 +325,7 @@ class smote_plugin(Plugin):
             # Generate a synthetic sample by interpolation
             lam = np.random.uniform(self.lam_min, self.lam_max)
             synthetic_sample = sample + lam * (neighbor - sample)
-            
+            synthetic_sample += np.random.randn(synthetic_sample.shape[0]) * self.add_noise_std
             synthetic_samples.append(synthetic_sample)
     
         return np.array(synthetic_samples)
@@ -340,10 +342,12 @@ class smote_imblearn_plugin(Plugin):
     def __init__(
         self,
         k_neighbors: int = 5,
+        add_noise_std: float = 0.0,
         **kwargs: Any
     ) -> None:
         super().__init__(**kwargs)
         self.k_neighbors = k_neighbors
+        self.add_noise_std = add_noise_std
 
     @staticmethod
     def name() -> str:
@@ -378,7 +382,7 @@ class smote_imblearn_plugin(Plugin):
         
         X_res, y_res = self.smote.fit_resample(X_all, y)
         X_false = X_res[-count:]
-        
+        X_false += np.random.randn(X_false.shape[0], X_false.shape[1]) * self.add_noise_std
         return X_false
     
     def _generate(self, count: int, syn_schema: Schema, **kwargs: Any) -> pd.DataFrame:
