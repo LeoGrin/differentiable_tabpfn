@@ -15,6 +15,7 @@ from synthcity_addons import generators
 from sklearn.preprocessing import QuantileTransformer
 import fire
 import pandas as pd
+import numpy as np
 import json
 import hashlib
 
@@ -44,7 +45,13 @@ def run_model_on_dataset(model_name, task_id, results_base_dir="results", normal
     if normalization == "quantile":
         X = QuantileTransformer(n_quantiles=100, random_state=42).set_output(transform="pandas").fit_transform(X)
 
+    # take 1024 random rows from X
+    indices = np.random.choice(X.index, 1024, replace=False)
+    X_ref = X.loc[indices]
+    X = X.drop(index=indices)
+
     loader = GenericDataLoader(X, target_column="target")
+    loader_ref = GenericDataLoader(X_ref, target_column="target")
 
     print("Loaded")
 
@@ -55,21 +62,22 @@ def run_model_on_dataset(model_name, task_id, results_base_dir="results", normal
     score = Benchmarks.evaluate(
         [(model_name, model_name, hp_dic)],
         loader,
+        X_ref=loader_ref,
         synthetic_size=synthetic_size,
         repeats=3,
         task_type=task_type
     )[model_name]
-    score_train = Benchmarks.evaluate(
-        [(model_name, model_name, hp_dic)],
-        loader,
-        loader,
-        synthetic_size=synthetic_size,
-        repeats=3,
-        task_type=task_type
-    )[model_name]
+    # score_train = Benchmarks.evaluate(
+    #     [(model_name, model_name, hp_dic)],
+    #     loader,
+    #     loader,
+    #     synthetic_size=synthetic_size,
+    #     repeats=3,
+    #     task_type=task_type
+    # )[model_name]
 
     score = pd.DataFrame(score)
-    score_train = pd.DataFrame(score_train)
+    #score_train = pd.DataFrame(score_train)
 
 
     print("Benchmark done")
@@ -94,10 +102,10 @@ def run_model_on_dataset(model_name, task_id, results_base_dir="results", normal
             json.dump(config, f)
         # save the scores
         score.to_csv(f"{results_base_dir}/{dataset_name}/{model_name}/{config_hash}/scores.csv")
-        score_train.to_csv(f"{results_base_dir}/{dataset_name}/{model_name}/{config_hash}/scores_train.csv")
+        #score_train.to_csv(f"{results_base_dir}/{dataset_name}/{model_name}/{config_hash}/scores_train.csv")
     else:
-        return score, score_train
+        return score#, score_train
 
 
 if __name__ == "__main__":
-    fire.Fire(run_model_on_dataset)
+    print(fire.Fire(run_model_on_dataset))
