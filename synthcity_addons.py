@@ -14,6 +14,7 @@ from synthcity.plugins.core.distribution import (
     Distribution,
     IntegerDistribution,
 )
+from synthcity.plugins.generic.plugin_dummy_sampler import DummySamplerPlugin
 from tabpfn import TabPFNClassifier
 import torch
 from tqdm import tqdm
@@ -72,6 +73,48 @@ class gaussian_noise_plugin(Plugin):
     
     def _generate(self, count: int, syn_schema: Schema, **kwargs: Any) -> pd.DataFrame:
         return self._safe_generate(self.sample, count, syn_schema)
+
+
+class oracle_plugin(Plugin):
+    """Subsample a reference sample from the real data. The reference dataset should be different from the train and test
+    datasets."""
+
+    def __init__(
+        self,
+        **kwargs: Any
+    ) -> None:
+        super().__init__(**kwargs)
+        
+
+    @staticmethod
+    def name() -> str:
+        return "oracle"
+
+    @staticmethod
+    def type() -> str:
+        return "debug"
+
+    @staticmethod
+    def hyperparameter_space(**kwargs: Any) -> List[Distribution]:
+        """
+        We can customize the hyperparameter space, and use it in AutoML benchmarks.
+        """
+        #TODO
+        return [
+            IntegerDistribution(name="embedding_n_units", low=100, high=500, step=50),
+            IntegerDistribution(name="batch_size", low=100, high=300, step=50),
+            IntegerDistribution(name="n_iter", low=100, high=500, step=50),
+        ]
+
+    def _fit(self, X: DataLoader, X_ref: DataLoader, *args: Any, **kwargs: Any) -> "oracle_plugin":
+        self.sampler = DummySamplerPlugin()
+        self.sampler.fit(X_ref)
+        return self
+
+    
+    def _generate(self, count: int, syn_schema: Schema, **kwargs: Any) -> pd.DataFrame:
+        return self.sampler._generate(count, syn_schema, **kwargs)
+
 
 
 class tabpfn_points_plugin(Plugin):
@@ -395,3 +438,5 @@ generators.add("forest_diffusion", forest_diffusion_plugin)
 generators.add("smote", smote_plugin)
 generators.add("smote_imblearn", smote_imblearn_plugin)
 generators.add("gaussian_noise", gaussian_noise_plugin)
+generators.add("oracle", oracle_plugin)
+
