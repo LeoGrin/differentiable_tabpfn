@@ -8,7 +8,7 @@ tasks = openml.study.get_suite(suite_id).tasks[:10]
 tag = ["no_subsample_in_metric"]
 
 gpu_models = [ "tabpfn_points", "ddpm", "ctgan", "tvae"]
-cpu_models = ["arf", "smote", "forest_diffusion", "smote_imblearn", "gaussian_noise", "dummy_sampler"]
+cpu_models = ["arf", "smote", "forest_diffusion", "smote_imblearn", "gaussian_noise", "dummy_sampler", "oracle"]
 #cpu_models = ["dummy_sampler"]
 
 def launch_jz_submission(config, filename="", gpu=True):
@@ -76,14 +76,16 @@ default_params = {
     "random_test_points_scale": 2,
 }
 
-for model in ["tabpfn_points"]:
+for model in cpu_models + gpu_models: #["tabpfn_points"]:
     for task in tasks:
-        for param, variations in param_variations.items():
-            for variation in variations:
-                config = default_params.copy()
-                config[param] = variation
-                config["model_name"] = model
-                config["task_id"] = task
-                launch_jz_submission(config, gpu=True, filename=f"{model}_{task}_{param}_{variation}")
+        #for param, variations in param_variations.items():
+        #    for variation in variations:
+        #        config = default_params.copy()
+        #        config[param] = variation
+        config = {}
+        config["model_name"] = model
+        config["task_id"] = task
+        #launch_jz_submission(config, gpu=True, filename=f"{model}_{task}_{param}_{variation}")
+        launch_jz_submission(config, gpu=model in gpu_models, filename=f"{model}_{task}")
                     # launch_jz_submission({"model_name": model, "task_id": task, "n_test_from_false_train": n_test_from_false_train, "n_batches": n_batches, "init_scale_factor": init_scale_factor}, gpu=True, 
                     #          filename=f"{model}_{task}")

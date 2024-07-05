@@ -65,7 +65,19 @@ def run_model_on_dataset(model_name, task_id, results_base_dir="results", normal
         X_ref=loader_ref,
         synthetic_size=synthetic_size,
         repeats=3,
-        task_type=task_type
+        task_type=task_type,
+        metrics = {
+                    'sanity': ['data_mismatch', 'common_rows_proportion', 'close_values_probability', 'distant_values_probability',
+                               'nearest_syn_neighbor_distance', "nearest_real_neighbor_distance",
+                                "nearest_real_neighbor_distance_no_norm", "nearest_syn_neighbor_distance_no_norm",
+                                "nearest_real_neighbor_distance_no_norm_on_train", "nearest_syn_neighbor_distance_no_norm_on_train",
+                                "nearest_real_neighbor_distance_on_train", "nearest_syn_neighbor_distance_on_train"
+                               ],
+                    'stats': ['jensenshannon_dist', 'chi_squared_test', 'feature_corr', 'inv_kl_divergence', 'ks_test', 'max_mean_discrepancy', 'wasserstein_dist', 'prdc', 'alpha_precision', 'survival_km_distance'],
+                    'performance': ['mlp', 'xgb'],
+                    'detection': ['detection_xgb', 'detection_mlp'],
+                    'privacy': ['delta-presence', 'k-anonymization', 'k-map', 'distinct l-diversity', 'identifiability_score']
+                }
     )[model_name]
     # score_train = Benchmarks.evaluate(
     #     [(model_name, model_name, hp_dic)],
