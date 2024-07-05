@@ -107,13 +107,26 @@ class oracle_plugin(Plugin):
         ]
 
     def _fit(self, X: DataLoader, X_ref: DataLoader, *args: Any, **kwargs: Any) -> "oracle_plugin":
-        self.sampler = DummySamplerPlugin()
-        self.sampler.fit(X_ref)
+        self.X = X_ref.dataframe()
         return self
 
     
     def _generate(self, count: int, syn_schema: Schema, **kwargs: Any) -> pd.DataFrame:
-        return self.sampler._generate(count, syn_schema, **kwargs)
+        assert self.strict == False, "Oracle plugin does not support strict mode"
+        def _sample(count: int) -> pd.DataFrame:
+            baseline = self.X
+            #constraints = syn_schema.as_constraints()
+
+            #baseline = constraints.match(baseline)
+            if len(baseline) == 0:
+                raise ValueError("Cannot generate data")
+
+            if len(baseline) <= count:
+                return baseline.sample(frac=1)
+
+            return baseline.sample(count, replace=False).reset_index(drop=True)
+
+        return self._safe_generate(_sample, count, syn_schema)
 
 
 

@@ -44,7 +44,7 @@ def run_model_on_dataset(model_name, task_id, results_base_dir="results", normal
     print(X.columns)
     if normalization == "quantile":
         X = QuantileTransformer(n_quantiles=100, random_state=42).set_output(transform="pandas").fit_transform(X)
-
+    print(X)
     # take 1024 random rows from X
     indices = np.random.choice(X.index, 1024, replace=False)
     X_ref = X.loc[indices]
@@ -74,8 +74,8 @@ def run_model_on_dataset(model_name, task_id, results_base_dir="results", normal
                                 "nearest_real_neighbor_distance_on_train", "nearest_syn_neighbor_distance_on_train"
                                ],
                     'stats': ['jensenshannon_dist', 'chi_squared_test', 'feature_corr', 'inv_kl_divergence', 'ks_test', 'max_mean_discrepancy', 'wasserstein_dist', 'prdc', 'alpha_precision', 'survival_km_distance'],
-                    'performance': ['mlp', 'xgb'],
-                    'detection': ['detection_xgb', 'detection_mlp'],
+                    'performance': ['xgb'],
+                    'detection': ['detection_xgb'],
                     'privacy': ['delta-presence', 'k-anonymization', 'k-map', 'distinct l-diversity', 'identifiability_score']
                 }
     )[model_name]
