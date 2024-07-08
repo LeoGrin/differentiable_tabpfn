@@ -58,6 +58,21 @@ def run_model_on_dataset(model_name, task_id, results_base_dir="results", normal
     task_type = "regression"
     synthetic_size = 512
 
+    config = {"model_name": model_name, "task_id": task_id, "normalization": normalization, "X_true_n_rows": X.shape[0], 
+              "X_true_n_cols": X.shape[1], "synthetic_size": synthetic_size, "task_type": task_type}
+    config.update(hp_dic_original)
+    # hash config
+    config_hash = hashlib.sha256(pickle.dumps(config)).hexdigest()[:16]
+    if save_results or "tabpfn" in model_name:  
+        os.makedirs(results_base_dir, exist_ok=True)
+        os.makedirs(f"{results_base_dir}/{dataset_name}", exist_ok=True)
+        os.makedirs(f"{results_base_dir}/{dataset_name}/{model_name}", exist_ok=True)
+        os.makedirs(f"{results_base_dir}/{dataset_name}/{model_name}/{config_hash}", exist_ok=True)
+
+    if "tabpfn" in model_name:
+        hp_dic["store_animation_path"] = f"{results_base_dir}/{dataset_name}/{model_name}/{config_hash}/animation.mp4"
+        hp_dic["store_intermediate_data"] = True
+
 
     score = Benchmarks.evaluate(
         [(model_name, model_name, hp_dic)],
@@ -96,16 +111,6 @@ def run_model_on_dataset(model_name, task_id, results_base_dir="results", normal
     if save_results:
         # save the results in results/dataset_id/model_name.pkl
         # create the folders if they don't exist
-        os.makedirs(results_base_dir, exist_ok=True)
-        os.makedirs(f"{results_base_dir}/{dataset_name}", exist_ok=True)
-        os.makedirs(f"{results_base_dir}/{dataset_name}/{model_name}", exist_ok=True)
-        config = {"model_name": model_name, "task_id": task_id, "normalization": normalization, "X_true_n_rows": X.shape[0], 
-                  "X_true_n_cols": X.shape[1], "synthetic_size": synthetic_size, "task_type": task_type}
-        config.update(hp_dic_original)
-        # hash config
-        config_hash = hashlib.sha256(pickle.dumps(config)).hexdigest()[:16]
-        # create a new folder
-        os.makedirs(f"{results_base_dir}/{dataset_name}/{model_name}/{config_hash}", exist_ok=True)
         # save the config
         # with open(f"{results_base_dir}/{dataset_name}/{config_hash}/config.pkl", "wb") as f:
         #     pickle.dump(config, f)
