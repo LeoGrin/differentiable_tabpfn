@@ -2,11 +2,17 @@ import random
 import time
 from torch.utils.checkpoint import checkpoint
 
-
+from tabpfn import TabPFNClassifier
 from tabpfn.utils import normalize_data, to_ranking_low_mem, remove_outliers
 from tabpfn.utils import NOP, normalize_by_used_features_f
 from sklearn.preprocessing import PowerTransformer, QuantileTransformer, RobustScaler
+from sklearn.base import BaseEstimator, TransformerMixin
+from sklearn.base import check_is_fitted
 import torch
+import numpy as np
+import matplotlib.pyplot as plt
+from matplotlib.animation import FuncAnimation
+from IPython.display import HTML
 
 import contextlib
 import torch
@@ -353,3 +359,78 @@ def get_tabpfn_logits(model, X, y, single_eval_pos, verbose=False, use_transform
     tabpfn_output = tabpfn_output.squeeze(0)
 
     return tabpfn_output
+
+
+
+# adapted from https://github.com/yandex-research/tabular-dl-tabr/blob/75105013189c76bc4f247633c2fb856bc948e579/lib/data.py#L262
+class TabrQuantileTransformer(BaseEstimator, TransformerMixin):
+    def __init__(self, noise=1e-3, random_state=None, n_quantiles=1000, subsample=1_000_000_000,
+                 output_distribution="normal"):
+        self.noise = noise
+        self.random_state = random_state
+        self.n_quantiles = n_quantiles
+        self.subsample = subsample
+        self.output_distribution = output_distribution
+
+    def fit(self, X, y=None):
+        # Calculate the number of quantiles based on data size
+        n_quantiles = max(min(X.shape[0] // 30, self.n_quantiles), 10)
+
+        # Initialize QuantileTransformer
+        normalizer = QuantileTransformer(
+            output_distribution=self.output_distribution,
+            n_quantiles=n_quantiles,
+            subsample=self.subsample,
+            random_state=self.random_state
+        )
+
+        # Add noise if required
+        X_modified = self._add_noise(X) if self.noise > 0 else X
+
+        # Fit the normalizer
+        normalizer.fit(X_modified)
+        # show that it's fitted
+        self.normalizer_ = normalizer
+
+        return self
+
+    def transform(self, X, y=None):
+        check_is_fitted(self)
+        return self.normalizer_.transform(X)
+
+    def _add_noise(self, X):
+        stds = np.std(X, axis=0, keepdims=True)
+        noise_std = self.noise / np.maximum(stds, self.noise)
+        rng = np.random.default_rng(self.random_state)
+        return X + noise_std * rng.standard_normal(X.shape)
+
+
+
+def create_animation(X_false_list, X_true, save_path, step=20):
+    fig, ax = plt.subplots(1, 1, figsize=(12, 6))  # Changed axs to ax
+    # set axis limits
+    ax.set_xlim(-3, 3)
+    ax.set_ylim(-3, 3)
+    ax.set_aspect('equal')
+    # only keep 1 batch every 10, i.e n_step_test_factor points every n_step_test_factor * 10
+    #data_for_plot = data_for_plot[::n_step_test_factor]
+    #data_for_plot = data_for_plot[:n_step_test_factor * 10]
+
+    def update(frame):
+        ax.clear()
+        
+        X_false = X_false_list[frame]
+        
+        ax.scatter(X_false[:, 0], X_false[:, 1], label="False", s=10, alpha=0.2, c="red")
+        ax.scatter(X_true[:, 0], X_true[:, 1], label="True", s=10, alpha=0.2, c="blue")
+        ax.set_title("Training Data")
+        ax.set_xlabel("X1")
+        ax.set_ylabel("X2")
+        ax.legend()
+
+    ani = FuncAnimation(fig, update, frames=np.arange(0, len(X_false_list), step), interval=1000, repeat=False, blit=False)
+
+    print("animation done")
+
+    # save the animation
+    ani.save(save_path)
