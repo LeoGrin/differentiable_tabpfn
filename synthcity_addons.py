@@ -408,7 +408,7 @@ class tabpfn_generator_plugin(Plugin):
         X_random_test = np.random.rand(self.n_random_test_samples, X.shape[1]) * 2 * self.random_test_points_scale - self.random_test_points_scale
         X_random_test = torch.tensor(X_random_test).float().to(self.device)
 
-        self.mlp_config = {"d_in": X_true.shape[1], "d_out": X_true.shape[1], "d_layers": [128, 128, 128], "dropout": 0.0}
+        self.mlp_config = {"d_in": X_true.shape[1], "d_out": X_true.shape[1], "d_layers": [256, 256, 256], "dropout": 0.1}
         self.generator_model = MLP.make_baseline(**self.mlp_config).to(self.device)
 
         
@@ -496,7 +496,9 @@ class tabpfn_generator_plugin(Plugin):
     def sample(self, count: int, **kwargs: Any) -> pd.DataFrame:
         noise = torch.randn(count, self.mlp_config["d_in"]).to(self.device)
         #noise.requires_grad = True
+        self.generator_model.eval()
         X_false_batch_train = self.generator_model(noise)
+        self.generator_model.train()
         return X_false_batch_train.detach().cpu().numpy()
     
     def _generate(self, count: int, syn_schema: Schema, **kwargs: Any) -> pd.DataFrame:
