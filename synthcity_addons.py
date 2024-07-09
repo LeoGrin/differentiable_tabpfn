@@ -212,18 +212,22 @@ class tabpfn_points_plugin(Plugin):
         ]
 
     def _fit(self, X: DataLoader, X_false_train_init=None, *args: Any, **kwargs: Any) -> "tabpfn_points_plugin":
+        if self.preprocessor is not None:
+            X_true = self.preprocessor.fit_transform(X.numpy()) # all numerical features for now
+        else:
+            X_true = X.numpy()
         if X_false_train_init is None:
             if self.initialization_strategy == "uniform":
                 X_false_train = (np.random.rand(512, X.shape[1]) * 2 * self.random_test_points_scale - self.random_test_points_scale) / self.init_scale_factor
             elif self.initialization_strategy == "gaussian_noise":
                 #TODO use plugin to generate noise
                 indices = np.random.choice(X.shape[0], 512, replace=False)
-                X_false_train = X.numpy()[indices]
+                X_false_train = X_true[indices]
                 noise = np.random.normal(0, self.noise_std, X_false_train.shape)
                 X_false_train += noise
             elif type(self.initialization_strategy) != str:
                 # in this case it should be a plugin
-                self.initialization_strategy.fit(X)
+                self.initialization_strategy.fit(pd.DataFrame(X_true))
                 X_false_train = self.initialization_strategy.generate(512).numpy()
             else:
                 raise ValueError(f"Initialization strategy {self.initialization_strategy} not supported")
@@ -231,13 +235,8 @@ class tabpfn_points_plugin(Plugin):
             X_false_train = X_false_train_init
         self.X_false_train = torch.tensor(X_false_train).float().to(self.device)
         self.X_false_train.requires_grad = True
-        if self.preprocessor is not None:
-            #TODO: fix this, it should be done before
-            X_true = self.preprocessor.fit_transform(X.numpy()) # all numerical features for now
-        else:
-            X_true = X.numpy()
         X_true = torch.tensor(X_true, dtype=torch.float32).to(self.device)
-        X_random_test = np.random.rand(self.n_random_test_samples, X.shape[1]) * 2 * self.random_test_points_scale - self.random_test_points_scale
+        X_random_test = np.random.rand(self.n_random_test_samples, X_true.shape[1]) * 2 * self.random_test_points_scale - self.random_test_points_scale
         X_random_test = torch.tensor(X_random_test).float().to(self.device)
 
         
