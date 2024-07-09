@@ -154,6 +154,8 @@ class tabpfn_points_plugin(Plugin):
         noise_std: float = 0.1,
         preprocessing: str = "standard",
         loss: str = "individual",
+        task_type: str = "classification",
+        n_points: int = 512,
         **kwargs: Any
     ) -> None:
         super().__init__(**kwargs)
@@ -183,6 +185,8 @@ class tabpfn_points_plugin(Plugin):
         self.init_scale_factor = init_scale_factor
         self.noise_std = noise_std
         self.loss = loss
+        self.n_points = n_points
+        self.task_type = task_type
         if store_animation_path is not None:
             assert store_intermediate_data, "store_intermediate_data must be True to store animation data"
         if store_intermediate_data:
@@ -211,91 +215,166 @@ class tabpfn_points_plugin(Plugin):
             IntegerDistribution(name="n_iter", low=100, high=500, step=50),
         ]
 
-    def _fit(self, X: DataLoader, X_false_train_init=None, *args: Any, **kwargs: Any) -> "tabpfn_points_plugin":
+    def _create_init_points(self, n_points_to_create: int, X_true: DataLoader, X_false_train_init: torch.Tensor = None) -> torch.Tensor:
         if X_false_train_init is None:
             if self.initialization_strategy == "uniform":
-                X_false_train = (np.random.rand(512, X.shape[1]) * 2 * self.random_test_points_scale - self.random_test_points_scale) / self.init_scale_factor
+                X_false_train = (np.random.rand(n_points_to_create, X_true.shape[1]) * 2 * self.random_test_points_scale - self.random_test_points_scale) / self.init_scale_factor
             elif self.initialization_strategy == "gaussian_noise":
                 #TODO use plugin to generate noise
-                indices = np.random.choice(X.shape[0], 512, replace=False)
-                X_false_train = X.numpy()[indices]
+                indices = np.random.choice(X_true.shape[0], n_points_to_create, replace=False)
+                X_false_train = X_true[indices]
                 noise = np.random.normal(0, self.noise_std, X_false_train.shape)
                 X_false_train += noise
             elif type(self.initialization_strategy) != str:
                 # in this case it should be a plugin
-                self.initialization_strategy.fit(X)
-                X_false_train = self.initialization_strategy.generate(512).numpy()
+                self.initialization_strategy.fit(pd.DataFrame(X_true))
+                X_false_train = self.initialization_strategy.generate(n_points_to_create).numpy()
             else:
                 raise ValueError(f"Initialization strategy {self.initialization_strategy} not supported")
         else:
             X_false_train = X_false_train_init
-        self.X_false_train = torch.tensor(X_false_train).float().to(self.device)
-        self.X_false_train.requires_grad = True
-        if self.preprocessor is not None:
-            X_true = self.preprocessor.fit_transform(X.numpy()) # all numerical features for now
+        X_false_train = torch.tensor(X_false_train).float().to(self.device)
+        X_false_train.requires_grad = True
+        return X_false_train
+
+    def _fit(self, X: DataLoader, X_false_train_init=None, *args: Any, **kwargs: Any) -> "tabpfn_points_plugin":
+        print("self.task_type", self.task_type)
+        if self.task_type == "classification":
+            X_true, y_true =  X.unpack(as_numpy=True)
+            # save proportions of classes
+            self.class_proportions = np.unique(y_true, return_counts=True)[1] / len(y_true)
+            # make y_true a tensor
+            y_true = torch.tensor(y_true).long().to(self.device)
+            print("X_true", X_true)
+        elif self.task_type == "regression":
+            X_true = X.numpy() #includes the target in the features
         else:
-            X_true = X.numpy()
+            raise ValueError(f"Task type {self.task_type} not supported")
+        if self.preprocessor is not None:
+            X_true = self.preprocessor.fit_transform(X_true) # all numerical features for now
+
+        if self.task_type == "regression":
+            # in this case we generate everything together with the target
+            self.X_false_train = self._create_init_points(self.n_points, X_true, X_false_train_init)
+        else:
+            # in this case we generate one X_false_train for each label
+            self.X_false_train_list = []
+            labels = torch.unique(y_true)
+            #TODO check ordinal encoded labels
+            for label in labels:
+                self.X_false_train_list.append(self._create_init_points(self.n_points // len(labels), X_true, X_false_train_init))
+        
+
+
         X_true = torch.tensor(X_true, dtype=torch.float32).to(self.device)
         X_random_test = np.random.rand(self.n_random_test_samples, X.shape[1]) * 2 * self.random_test_points_scale - self.random_test_points_scale
         X_random_test = torch.tensor(X_random_test).float().to(self.device)
 
-        
-        optimizer = torch.optim.Adam([self.X_false_train], lr=self.lr)
+        if self.task_type == "classification":
+            optimizer = torch.optim.Adam(self.X_false_train_list, lr=self.lr)
+        else:
+            optimizer = torch.optim.Adam([self.X_false_train], lr=self.lr)
 
         tabpfn_classifier = TabPFNClassifier(device=self.device, N_ensemble_configurations=self.n_permutations,
                                               no_preprocess_mode=True, no_grad=False, normalize=False)
         
+        X_train = torch.cat([self.X_false_train_list[label] for label in range(len(self.X_false_train_list))], dim=0)
+        y_train = torch.cat([torch.ones(self.X_false_train_list[label].shape[0]) * label for label in range(len(self.X_false_train_list))], dim=0)
+        self.X_false_train = torch.cat((X_train, y_train.reshape(-1, 1).to(self.device)), dim=1)
+        
         if self.store_intermediate_data:
             self.all_X_false_train.append(self.X_false_train.detach().cpu().numpy())
 
+        
         for batch in tqdm(range(self.n_batches)):
             n_train = 512
             n_test = min(2048, X_true.shape[0])
             tabpfn_output_proba_list = []
-            for _ in range(self.n_ensembles):
-                indices_train = np.random.choice(X_true.shape[0], n_train, replace=False)
-                X_batch_train = X_true[indices_train]
-                indices_test = np.random.choice(X_true.shape[0], n_test, replace=False)
-                X_batch_test = X_true[indices_test]
-                #indices_false_test = np.random.choice(X_random_test.shape[0], len(X_batch_test), replace=False)
-                #X_false_test = X_random_test[indices_false_test]
-                indices_false_test_from_random = np.random.choice(X_random_test.shape[0], len(X_batch_test) - self.n_test_from_false_train, replace=False)
-                X_false_test_from_random = X_random_test[indices_false_test_from_random]
-                indices_false_test_from_false_train = np.random.choice(self.X_false_train.shape[0], self.n_test_from_false_train, replace=False)
-                X_false_test_from_false_train = self.X_false_train.detach()[indices_false_test_from_false_train]
-                X_false_test = torch.cat((X_false_test_from_random, X_false_test_from_false_train), dim=0)
+            loss_list = []
+            if self.loss != "performance":
+                for _ in range(self.n_ensembles):
+                    indices_train = np.random.choice(X_true.shape[0], n_train, replace=False)
+                    X_batch_train = X_true[indices_train]
+                    if self.task_type == "classification":
+                        y_batch_train = y_true[indices_train]
+                    indices_test = np.random.choice(X_true.shape[0], n_test, replace=False)
+                    X_batch_test = X_true[indices_test]
+                    if self.task_type == "classification":
+                        y_batch_test = y_true[indices_test]
+                    #indices_false_test = np.random.choice(X_random_test.shape[0], len(X_batch_test), replace=False)
+                    #X_false_test = X_random_test[indices_false_test]
+                    indices_false_test_from_random = np.random.choice(X_random_test.shape[0], len(X_batch_test) - self.n_test_from_false_train, replace=False)
+                    X_false_test_from_random = X_random_test[indices_false_test_from_random]
+                    indices_false_test_from_false_train = np.random.choice(self.X_false_train.shape[0], self.n_test_from_false_train, replace=False)
+                    X_false_test_from_false_train = self.X_false_train.detach()[indices_false_test_from_false_train]
+                    X_false_test = torch.cat((X_false_test_from_random, X_false_test_from_false_train), dim=0)
 
-                indices_false_train = np.random.choice(self.X_false_train.shape[0], len(X_batch_train), replace=False)
-                X_false_batch_train = self.X_false_train[indices_false_train]
+                    indices_false_train = np.random.choice(self.X_false_train.shape[0], len(X_batch_train), replace=False)
+                    X_false_batch_train = self.X_false_train[indices_false_train]
 
-                X_train = torch.cat((X_batch_train, X_false_batch_train), dim=0)
-                X_test = torch.cat((X_batch_test, X_false_test), dim=0)
-                y_train = torch.cat((torch.ones(X_batch_train.shape[0]), torch.zeros(X_false_batch_train.shape[0])), dim=0).long()
-                y_test = torch.cat((torch.ones(X_batch_test.shape[0]), torch.zeros(X_false_test.shape[0])), dim=0).long()
-                #y_test = torch.ones(X_batch_test.shape[0]).long()
-                #y_test = torch.zeros(X_false_test.shape[0]).long()
+                    X_train = torch.cat((X_batch_train, X_false_batch_train), dim=0)
+                    X_test = torch.cat((X_batch_test, X_false_test), dim=0)
+                    y_train = torch.cat((torch.ones(X_batch_train.shape[0]), torch.zeros(X_false_batch_train.shape[0])), dim=0).long()
+                    y_test = torch.cat((torch.ones(X_batch_test.shape[0]), torch.zeros(X_false_test.shape[0])), dim=0).long()
+                    #y_test = torch.ones(X_batch_test.shape[0]).long()
+                    #y_test = torch.zeros(X_false_test.shape[0]).long()
 
-                perm_train = torch.randperm(X_train.shape[0])
-                X_train = X_train[perm_train]
-                y_train = y_train[perm_train]
-                perm_test = torch.randperm(X_test.shape[0])
-                X_test = X_test[perm_test]
-                y_test = y_test[perm_test]
+                    perm_train = torch.randperm(X_train.shape[0])
+                    X_train = X_train[perm_train]
+                    y_train = y_train[perm_train]
+                    perm_test = torch.randperm(X_test.shape[0])
+                    X_test = X_test[perm_test]
+                    y_test = y_test[perm_test]
 
-                # add a third feature to X_train and X_test with random values
-                if self.n_random_features_to_add > 0:
-                    X_train = torch.cat((X_train, torch.randn(X_train.shape[0], self.n_random_features_to_add).to(self.device)), dim=1)
-                    X_test = torch.cat((X_test, torch.randn(X_test.shape[0], self.n_random_features_to_add).to(self.device)), dim=1)
-                tabpfn_classifier.fit(X_train, y_train, overwrite_warning=True)
-                tabpfn_output_proba = tabpfn_classifier.predict_proba(X_test)
-                tabpfn_output_proba_list.append(tabpfn_output_proba)
-            tabpfn_output_proba = torch.stack(tabpfn_output_proba_list).mean(dim=0)
+                    # add a third feature to X_train and X_test with random values
+                    if self.n_random_features_to_add > 0:
+                        X_train = torch.cat((X_train, torch.randn(X_train.shape[0], self.n_random_features_to_add).to(self.device)), dim=1)
+                        X_test = torch.cat((X_test, torch.randn(X_test.shape[0], self.n_random_features_to_add).to(self.device)), dim=1)
+                    tabpfn_classifier.fit(X_train, y_train, overwrite_warning=True)
+                    tabpfn_output_proba = tabpfn_classifier.predict_proba(X_test)
+                    tabpfn_output_proba_list.append(tabpfn_output_proba)
+                tabpfn_output_proba = torch.stack(tabpfn_output_proba_list).mean(dim=0)
 
-            if self.loss == "individual":
-                loss = torch.mean(torch.abs((tabpfn_output_proba[:, 0] - tabpfn_output_proba[:, 1]))**2)
-            elif self.loss == "average":
-                #loss = (torch.mean(tabpfn_output_proba[:, 0]) - torch.mean(tabpfn_output_proba[:, 1]))**2 #TODO
-                loss = (torch.mean(tabpfn_output_proba[y_test == 0, 0]) - torch.mean(tabpfn_output_proba[y_test == 1, 0]))**2
+                if self.loss == "individual":
+                    loss = torch.mean(torch.abs((tabpfn_output_proba[:, 0] - tabpfn_output_proba[:, 1]))**2)
+                elif self.loss == "average":
+                    #loss = (torch.mean(tabpfn_output_proba[:, 0]) - torch.mean(tabpfn_output_proba[:, 1]))**2 #TODO
+                    loss = (torch.mean(tabpfn_output_proba[y_test == 0, 0]) - torch.mean(tabpfn_output_proba[y_test == 1, 0]))**2
+
+            else:
+                assert self.task_type == "classification", "TabPFN does not support regression"
+                for _ in range(self.n_ensembles): #TODO: make a tabpfn prediction function taking ensemble as parameter (with one dataset)
+                    #if self.task_type == "classification":
+                    indices_test = np.random.choice(X_true.shape[0], n_test, replace=False)
+                    X_test = X_true[indices_test]
+                    #if self.task_type == "classification":
+                    y_test = y_true[indices_test]
+
+                    # create train set using labels and self.X_false_train_list
+                    X_train = torch.cat([self.X_false_train_list[label] for label in range(len(self.X_false_train_list))], dim=0)
+                    y_train = torch.cat([torch.ones(self.X_false_train_list[label].shape[0]) * label for label in range(len(self.X_false_train_list))], dim=0)
+                    self.X_false_train = torch.cat((X_train, y_train.reshape(-1, 1).to(self.device)), dim=1)
+
+                    perm_train = torch.randperm(X_train.shape[0])
+                    X_train = X_train[perm_train]
+                    y_train = y_train[perm_train]
+                    perm_test = torch.randperm(X_test.shape[0])
+                    X_test = X_test[perm_test]
+                    y_test = y_test[perm_test]
+
+                    tabpfn_classifier.fit(X_train, y_train, overwrite_warning=True)
+
+                    tabpfn_output_log_proba = torch.log(tabpfn_classifier.predict_proba(X_test) + 1e-7)
+                    loss_ = torch.nn.functional.cross_entropy(tabpfn_output_log_proba, y_test)
+                    loss_list.append(loss_)
+                loss = torch.mean(torch.stack(loss_list))
+
+                    
+
+
+
+            #TODO: factorize the part where we differentiate through tabpfn
+
             loss.backward()
 
             optimizer.step()
@@ -307,16 +386,24 @@ class tabpfn_points_plugin(Plugin):
             if self.store_intermediate_data:
                 self.loss_list.append(loss.item())
                 self.all_X_false_train.append(self.X_false_train.detach().cpu().numpy())
-                y_pred = tabpfn_output_proba.argmax(dim=1)
-                accuracy = torch.mean((y_pred.detach().cpu() == y_test).float()).item()
-                self.accuracy_list.append(accuracy)
+                if self.loss != "performance":
+                    y_pred = tabpfn_output_proba.argmax(dim=1)
+                    accuracy = torch.mean((y_pred.detach().cpu() == y_test).float()).item()
+                    self.accuracy_list.append(accuracy)
 
         if self.store_animation_path is not None:
             # create an animation of the false train points
-            create_animation(self.all_X_false_train, X_batch_train.detach().cpu().numpy(), self.store_animation_path,
-                                step=max(self.n_batches // 20, 5))
+            if self.loss != "performance":
+                create_animation(self.all_X_false_train, X_batch_train.detach().cpu().numpy(), self.store_animation_path,
+                                    step=max(self.n_batches // 20, 5))
+            else:
+                create_animation(self.all_X_false_train, X_test.detach().cpu().numpy(), self.store_animation_path,
+                                    step=max(self.n_batches // 20, 5))
     
-        return tabpfn_output_proba.detach().cpu(), self.X_false_train.detach().cpu(), y_test.detach().cpu()
+        if self.task_type == "regression":
+            return tabpfn_output_proba.detach().cpu(), self.X_false_train.detach().cpu(), y_test.detach().cpu()
+        elif self.task_type == "classification":
+            return None
 
     def sample(self, count: int, **kwargs: Any) -> pd.DataFrame:
         if count > len(self.X_false_train):
@@ -355,6 +442,7 @@ class tabpfn_generator_plugin(Plugin):
         noise_std: float = 0.1,
         preprocessing: str = "standard",
         use_wasserstein: bool = False,
+        task_type: str = "regression",
         **kwargs: Any
     ) -> None:
         super().__init__(**kwargs)
@@ -364,6 +452,7 @@ class tabpfn_generator_plugin(Plugin):
         self.lr = lr
         self.n_permutations = n_permutations
         self.n_ensembles = n_ensembles
+        self.task_type = task_type
         if preprocessing == "standard":
             self.preprocessor = StandardScaler()
         elif preprocessing == "none":
@@ -408,8 +497,16 @@ class tabpfn_generator_plugin(Plugin):
         ]
 
     def _fit(self, X: DataLoader, X_false_train_init=None, *args: Any, **kwargs: Any) -> "tabpfn_points_plugin":
+        if self.task_type == "classification":
+            X_true, y_true =  X.unpack()
+            X_true = X_true.numpy()
+            y_true = y_true.numpy()
+        elif self.task_type == "regression":
+            X_true = X.numpy()
+        else:
+            raise ValueError(f"Task type {self.task_type} not supported")
         if self.preprocessor is not None:
-            X_true = self.preprocessor.fit_transform(X.numpy()) # all numerical features for now
+            X_true = self.preprocessor.fit_transform(X_true) # all numerical features for now
         else:
             X_true = X.numpy()
         X_true = torch.tensor(X_true, dtype=torch.float32).to(self.device)
@@ -436,8 +533,12 @@ class tabpfn_generator_plugin(Plugin):
                 for _ in range(self.n_ensembles):
                     indices_train = np.random.choice(X_true.shape[0], n_train, replace=False)
                     X_batch_train = X_true[indices_train]
+                    if self.task_type == "classification":
+                        y_batch_train = y_true[indices_train]
                     indices_test = np.random.choice(X_true.shape[0], n_test, replace=False)
                     X_batch_test = X_true[indices_test]
+                    if self.task_type == "classification":
+                        y_batch_test = y_true[indices_test]
                     #indices_false_test = np.random.choice(X_random_test.shape[0], len(X_batch_test), replace=False)
                     #X_false_test = X_random_test[indices_false_test]
                     indices_false_test_from_random = np.random.choice(X_random_test.shape[0], len(X_batch_test), replace=False)
@@ -487,8 +588,10 @@ class tabpfn_generator_plugin(Plugin):
                 M = ot.dist(X_true, X_false_batch_train, metric='euclidean')
                 a = torch.ones((X_true.shape[0],), device=self.device) / X_true.shape[0]
                 b = torch.ones((X_false_batch_train.shape[0],), device=self.device) / X_false_batch_train.shape[0]
-                reg = 1e-3  # Regularization parameter for Sinkhorn algorithm
+                reg = 1e-1  # Regularization parameter for Sinkhorn algorithm
                 loss = ot.sinkhorn2(a, b, M, reg)
+                #loss = ot.emd2(a, b, M)
+                print("loss", loss)
             loss.backward()
 
             optimizer.step()
