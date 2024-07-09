@@ -25,6 +25,7 @@ from smote import MySMOTE
 from imblearn.over_sampling import SMOTE
 from utils import create_animation
 from modules import ResNet, MLP
+import ot
 
 class gaussian_noise_plugin(Plugin):
     """Gaussian Noise integration in synthcity."""
@@ -173,7 +174,12 @@ class tabpfn_points_plugin(Plugin):
         self.n_test_from_false_train = n_test_from_false_train
         self.n_random_features_to_add = n_random_features_to_add
         self.random_test_points_scale = random_test_points_scale
-        self.initialization_strategy = initialization_strategy
+        if initialization_strategy == "gaussian_noise":
+            self.initialization_strategy =  Plugins().get("gaussian_noise", strict=False)
+        elif initialization_strategy == "smote":
+            self.initialization_strategy =  Plugins().get("smote", strict=False)
+        else:   
+            self.initialization_strategy = initialization_strategy
         self.init_scale_factor = init_scale_factor
         self.noise_std = noise_std
         self.loss = loss
@@ -348,6 +354,7 @@ class tabpfn_generator_plugin(Plugin):
         init_scale_factor: float = 5,
         noise_std: float = 0.1,
         preprocessing: str = "standard",
+        use_wasserstein: bool = False,
         **kwargs: Any
     ) -> None:
         super().__init__(**kwargs)
@@ -371,6 +378,7 @@ class tabpfn_generator_plugin(Plugin):
         self.initialization_strategy = initialization_strategy
         self.init_scale_factor = init_scale_factor
         self.noise_std = noise_std
+        self.use_wasserstein = use_wasserstein
         if store_animation_path is not None:
             assert store_intermediate_data, "store_intermediate_data must be True to store animation data"
         if store_intermediate_data:
@@ -419,57 +427,68 @@ class tabpfn_generator_plugin(Plugin):
         
         #if self.store_intermediate_data:
         #self.all_X_false_train.append(self.X_false_train.detach().cpu().numpy())
+        n_train = 512
+        n_test = min(2048, X_true.shape[0])
 
         for batch in tqdm(range(self.n_batches)):
-            n_train = 512
-            n_test = min(2048, X_true.shape[0])
-            tabpfn_output_proba_list = []
-            for _ in range(self.n_ensembles):
-                indices_train = np.random.choice(X_true.shape[0], n_train, replace=False)
-                X_batch_train = X_true[indices_train]
-                indices_test = np.random.choice(X_true.shape[0], n_test, replace=False)
-                X_batch_test = X_true[indices_test]
-                #indices_false_test = np.random.choice(X_random_test.shape[0], len(X_batch_test), replace=False)
-                #X_false_test = X_random_test[indices_false_test]
-                indices_false_test_from_random = np.random.choice(X_random_test.shape[0], len(X_batch_test), replace=False)
-                X_false_test_from_random = X_random_test[indices_false_test_from_random]
-                #indices_false_test_from_false_train = np.random.choice(512, self.n_test_from_false_train, replace=False)
-                #X_false_test_from_false_train = self.X_false_train.detach()[indices_false_test_from_false_train]
-                X_false_test = X_false_test_from_random#torch.cat((X_false_test_from_random, X_false_test_from_false_train), dim=0) #TODO
+            if not self.use_wasserstein:
+                tabpfn_output_proba_list = []
+                for _ in range(self.n_ensembles):
+                    indices_train = np.random.choice(X_true.shape[0], n_train, replace=False)
+                    X_batch_train = X_true[indices_train]
+                    indices_test = np.random.choice(X_true.shape[0], n_test, replace=False)
+                    X_batch_test = X_true[indices_test]
+                    #indices_false_test = np.random.choice(X_random_test.shape[0], len(X_batch_test), replace=False)
+                    #X_false_test = X_random_test[indices_false_test]
+                    indices_false_test_from_random = np.random.choice(X_random_test.shape[0], len(X_batch_test), replace=False)
+                    X_false_test_from_random = X_random_test[indices_false_test_from_random]
+                    #indices_false_test_from_false_train = np.random.choice(512, self.n_test_from_false_train, replace=False)
+                    #X_false_test_from_false_train = self.X_false_train.detach()[indices_false_test_from_false_train]
+                    X_false_test = X_false_test_from_random#torch.cat((X_false_test_from_random, X_false_test_from_false_train), dim=0) #TODO
 
-                #indices_false_train = np.random.choice(self.X_false_train.shape[0], len(X_batch_train), replace=False)
-                #X_false_batch_train = self.X_false_train[indices_false_train]
-                # sample noise
-                noise = torch.randn(X_batch_train.shape[0], X_batch_train.shape[1]).to(self.device)
+                    #indices_false_train = np.random.choice(self.X_false_train.shape[0], len(X_batch_train), replace=False)
+                    #X_false_batch_train = self.X_false_train[indices_false_train]
+                    # sample noise
+                    noise = torch.randn(X_batch_train.shape[0], X_batch_train.shape[1]).to(self.device)
+                    noise.requires_grad = True
+                    X_false_batch_train = self.generator_model(noise)
+
+                    X_train = torch.cat((X_batch_train, X_false_batch_train), dim=0)
+                    X_test = torch.cat((X_batch_test, X_false_test), dim=0)
+                    y_train = torch.cat((torch.ones(X_batch_train.shape[0]), torch.zeros(X_false_batch_train.shape[0])), dim=0).long()
+                    y_test = torch.cat((torch.ones(X_batch_test.shape[0]), torch.zeros(X_false_test.shape[0])), dim=0).long()
+                    #y_test = torch.ones(X_batch_test.shape[0]).long()
+                    #y_test = torch.zeros(X_false_test.shape[0]).long()
+
+                    perm_train = torch.randperm(X_train.shape[0])
+                    X_train = X_train[perm_train]
+                    y_train = y_train[perm_train]
+                    perm_test = torch.randperm(X_test.shape[0])
+                    X_test = X_test[perm_test]
+                    y_test = y_test[perm_test]
+
+                    # add a third feature to X_train and X_test with random values
+                    if self.n_random_features_to_add > 0:
+                        X_train = torch.cat((X_train, torch.randn(X_train.shape[0], self.n_random_features_to_add).to(self.device)), dim=1)
+                        X_test = torch.cat((X_test, torch.randn(X_test.shape[0], self.n_random_features_to_add).to(self.device)), dim=1)
+                    tabpfn_classifier.fit(X_train, y_train, overwrite_warning=True)
+                    tabpfn_output_proba = tabpfn_classifier.predict_proba(X_test)
+                    tabpfn_output_proba_list.append(tabpfn_output_proba)
+                tabpfn_output_proba = torch.stack(tabpfn_output_proba_list).mean(dim=0)
+
+                loss = torch.mean(torch.abs((tabpfn_output_proba[:, 0] - tabpfn_output_proba[:, 1]))**2)
+                #loss = (torch.mean(tabpfn_output_proba[:, 0]) - torch.mean(tabpfn_output_proba[:, 1]))**2 #TODO
+                #loss = (torch.mean(tabpfn_output_proba[y_test == 0, 0]) - torch.mean(tabpfn_output_proba[y_test == 1, 0]))**2
+            elif self.use_wasserstein:
+                noise = torch.randn(n_train, X_true.shape[1]).to(self.device)
                 noise.requires_grad = True
                 X_false_batch_train = self.generator_model(noise)
-
-                X_train = torch.cat((X_batch_train, X_false_batch_train), dim=0)
-                X_test = torch.cat((X_batch_test, X_false_test), dim=0)
-                y_train = torch.cat((torch.ones(X_batch_train.shape[0]), torch.zeros(X_false_batch_train.shape[0])), dim=0).long()
-                y_test = torch.cat((torch.ones(X_batch_test.shape[0]), torch.zeros(X_false_test.shape[0])), dim=0).long()
-                #y_test = torch.ones(X_batch_test.shape[0]).long()
-                #y_test = torch.zeros(X_false_test.shape[0]).long()
-
-                perm_train = torch.randperm(X_train.shape[0])
-                X_train = X_train[perm_train]
-                y_train = y_train[perm_train]
-                perm_test = torch.randperm(X_test.shape[0])
-                X_test = X_test[perm_test]
-                y_test = y_test[perm_test]
-
-                # add a third feature to X_train and X_test with random values
-                if self.n_random_features_to_add > 0:
-                    X_train = torch.cat((X_train, torch.randn(X_train.shape[0], self.n_random_features_to_add).to(self.device)), dim=1)
-                    X_test = torch.cat((X_test, torch.randn(X_test.shape[0], self.n_random_features_to_add).to(self.device)), dim=1)
-                tabpfn_classifier.fit(X_train, y_train, overwrite_warning=True)
-                tabpfn_output_proba = tabpfn_classifier.predict_proba(X_test)
-                tabpfn_output_proba_list.append(tabpfn_output_proba)
-            tabpfn_output_proba = torch.stack(tabpfn_output_proba_list).mean(dim=0)
-
-            loss = torch.mean(torch.abs((tabpfn_output_proba[:, 0] - tabpfn_output_proba[:, 1]))**2)
-            #loss = (torch.mean(tabpfn_output_proba[:, 0]) - torch.mean(tabpfn_output_proba[:, 1]))**2 #TODO
-            #loss = (torch.mean(tabpfn_output_proba[y_test == 0, 0]) - torch.mean(tabpfn_output_proba[y_test == 1, 0]))**2
+                # Compute the Wasserstein distance using the Sinkhorn algorithm
+                M = ot.dist(X_true, X_false_batch_train, metric='euclidean')
+                a = torch.ones((X_true.shape[0],), device=self.device) / X_true.shape[0]
+                b = torch.ones((X_false_batch_train.shape[0],), device=self.device) / X_false_batch_train.shape[0]
+                reg = 1e-3  # Regularization parameter for Sinkhorn algorithm
+                loss = ot.sinkhorn2(a, b, M, reg)
             loss.backward()
 
             optimizer.step()
@@ -482,16 +501,25 @@ class tabpfn_generator_plugin(Plugin):
                 self.loss_list.append(loss.item())
                 #self.all_X_false_train.append(self.X_false_train.detach().cpu().numpy())
                 self.all_X_false_train.append(X_false_batch_train.detach().cpu().numpy())
-                y_pred = tabpfn_output_proba.argmax(dim=1)
-                accuracy = torch.mean((y_pred.detach().cpu() == y_test).float()).item()
-                self.accuracy_list.append(accuracy)
+                if not self.use_wasserstein:
+                    y_pred = tabpfn_output_proba.argmax(dim=1)
+                    accuracy = torch.mean((y_pred.detach().cpu() == y_test).float()).item()
+                    self.accuracy_list.append(accuracy)
 
         if self.store_animation_path is not None:
             # create an animation of the false train points
-            create_animation(self.all_X_false_train, X_batch_train.detach().cpu().numpy(), self.store_animation_path,
-                                step=max(self.n_batches // 20, 5))
-    
-        return tabpfn_output_proba.detach().cpu(), X_false_batch_train.detach().cpu(), y_test.detach().cpu()
+            if not self.use_wasserstein:
+                create_animation(self.all_X_false_train, X_batch_train.detach().cpu().numpy(), self.store_animation_path,
+                                    step=max(self.n_batches // 20, 5))
+            else:
+                create_animation(self.all_X_false_train, X_true.detach().cpu().numpy(), self.store_animation_path,
+                                    step=max(self.n_batches // 20, 5))
+
+                
+        if not self.use_wasserstein:
+            return tabpfn_output_proba.detach().cpu(), X_false_batch_train.detach().cpu(), y_test.detach().cpu()
+        else:
+            return None
 
     def sample(self, count: int, **kwargs: Any) -> pd.DataFrame:
         noise = torch.randn(count, self.mlp_config["d_in"]).to(self.device)

@@ -74,11 +74,6 @@ def run_model_on_dataset(model_name, task_id, results_base_dir="results", normal
     if "tabpfn" in model_name:
         hp_dic["store_animation_path"] = f"{results_base_dir}/{dataset_name}/{model_name}/{config_hash}/animation.mp4"
         hp_dic["store_intermediate_data"] = True
-        if "initialization_strategy" in hp_dic:
-            if hp_dic["initialization_strategy"] == "gaussian_noise":
-                hp_dic["initialization_strategy"] =  Plugins().get("gaussian_noise", strict=False)
-            elif hp_dic["initialization_strategy"] == "smote":
-                hp_dic["initialization_strategy"] =  Plugins().get("smote", strict=False)
 
 
 
