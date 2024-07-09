@@ -152,7 +152,7 @@ class tabpfn_points_plugin(Plugin):
         random_test_points_scale: float = 2,
         init_scale_factor: float = 5,
         noise_std: float = 0.1,
-        preprocessing: str = "standard",
+        preprocessing: str = "none",
         loss: str = "individual",
         **kwargs: Any
     ) -> None:
