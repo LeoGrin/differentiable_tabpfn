@@ -232,6 +232,7 @@ class tabpfn_points_plugin(Plugin):
         self.X_false_train = torch.tensor(X_false_train).float().to(self.device)
         self.X_false_train.requires_grad = True
         if self.preprocessor is not None:
+            #TODO: fix this, it should be done before
             X_true = self.preprocessor.fit_transform(X.numpy()) # all numerical features for now
         else:
             X_true = X.numpy()
