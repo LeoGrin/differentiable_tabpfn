@@ -147,12 +147,13 @@ class tabpfn_points_plugin(Plugin):
         initialization_strategy: str = "uniform",
         store_intermediate_data: bool = False,
         store_animation_path: bool = None,
+        store_false_data_path: bool = None,
         n_test_from_false_train: int = 0,
         n_random_features_to_add: int = 1,
         random_test_points_scale: float = 2,
         init_scale_factor: float = 5,
         noise_std: float = 0.1,
-        preprocessing: str = "none",
+        preprocessing: str = "standard",
         loss: str = "individual",
         **kwargs: Any
     ) -> None:
@@ -171,6 +172,7 @@ class tabpfn_points_plugin(Plugin):
             raise ValueError(f"Preprocessing {preprocessing} not supported")
         self.store_intermediate_data = store_intermediate_data
         self.store_animation_path = store_animation_path
+        self.store_false_data_path = store_false_data_path
         self.n_test_from_false_train = n_test_from_false_train
         self.n_random_features_to_add = n_random_features_to_add
         self.random_test_points_scale = random_test_points_scale
@@ -315,6 +317,9 @@ class tabpfn_points_plugin(Plugin):
             # create an animation of the false train points
             create_animation(self.all_X_false_train, X_batch_train.detach().cpu().numpy(), self.store_animation_path,
                                 step=max(self.n_batches // 20, 5))
+            
+        if self.store_false_data_path is not None:
+            np.save(self.store_false_data_path, self.X_false_train.detach().cpu().numpy())
     
         return tabpfn_output_proba.detach().cpu(), self.X_false_train.detach().cpu(), y_test.detach().cpu()
 

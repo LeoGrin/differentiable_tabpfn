@@ -73,6 +73,7 @@ def run_model_on_dataset(model_name, task_id, results_base_dir="results", normal
 
     if "tabpfn" in model_name:
         hp_dic["store_animation_path"] = f"{results_base_dir}/{dataset_name}/{model_name}/{config_hash}/animation.mp4"
+        hp_dic["store_false_data_path"] = f"{results_base_dir}/{dataset_name}/{model_name}/{config_hash}/false_data.npy"
         hp_dic["store_intermediate_data"] = True
 
 
