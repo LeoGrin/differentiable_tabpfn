@@ -86,7 +86,7 @@ from itertools import product
 for model in cpu_models + gpu_models: #["tabpfn_points"]:
     for task in tasks:
         for n_points in [10, 20, 30, 50, 100, 512]:
-            if model in ["kmeans", "svm"]:
+            if model in ["kmeans", "tabpfn_points_performance"]:
                 launch_jz_submission({"model_name": model, "task_id": task, "n_synthetic_points": n_points,
                                       "n_points_to_create": n_points}, gpu=model in gpu_models, filename=f"{model}_{task}_{n_points}")
             elif model in ["svm"]:
