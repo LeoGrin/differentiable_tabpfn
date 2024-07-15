@@ -102,6 +102,7 @@ def run_model_on_dataset(model_name, task_id, n_synthetic_points=512, results_ba
                     'privacy': ['delta-presence', 'k-anonymization', 'k-map', 'distinct l-diversity', 'identifiability_score']
                 }
     )[model_name]
+
     # score_train = Benchmarks.evaluate(
     #     [(model_name, model_name, hp_dic)],
     #     loader,
@@ -112,6 +113,14 @@ def run_model_on_dataset(model_name, task_id, n_synthetic_points=512, results_ba
     # )[model_name]
 
     score = pd.DataFrame(score)
+
+    if model_name == "svm":
+        # do one pass just to get the number of points
+        svm_plugin = Plugins().get("svm", C=hp_dic["C"])#TODO all params
+        svm_plugin.fit(loader)
+        n_synthetic_points = svm_plugin.get_n_points_to_create()
+        print(f"Number of points to create: {n_synthetic_points}")
+        config["n_synthetic_points"] = n_synthetic_points
     #score_train = pd.DataFrame(score_train)
 
 
