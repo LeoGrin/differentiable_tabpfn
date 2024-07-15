@@ -23,7 +23,7 @@ from synthcity.plugins import Plugins
 
 
 
-def run_model_on_dataset(model_name, task_id, n_synthetic_points=512, results_base_dir="results", normalization="quantile", save_results=True, **kwargs):
+def run_model_on_dataset(model_name, task_id, n_synthetic_points=512, results_base_dir="results_classif", normalization="quantile", save_results=True, **kwargs):
     from synthcity_addons import generators
     task = openml.tasks.get_task(task_id)
     dataset = task.get_dataset()
