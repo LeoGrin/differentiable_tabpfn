@@ -76,7 +76,7 @@ default_params = {
     "init_scale_factor": [5.],
     "n_permutations": [7],
     "n_ensembles": [7],
-    "n_random_features_to_add": [1],
+    #"n_random_features_to_add": [1],
     #"random_test_points_scale": [2],
 }
 
