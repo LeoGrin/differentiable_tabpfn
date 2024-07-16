@@ -353,6 +353,7 @@ class tabpfn_generator_plugin(Plugin):
         initialization_strategy: str = "uniform",
         store_intermediate_data: bool = False,
         store_animation_path: bool = None,
+        store_false_data_path: bool = None,
         n_test_from_false_train: int = 0,
         n_random_features_to_add: int = 1,
         random_test_points_scale: float = 2,
@@ -360,6 +361,9 @@ class tabpfn_generator_plugin(Plugin):
         noise_std: float = 0.1,
         preprocessing: str = "standard",
         use_wasserstein: bool = False,
+        model: str = "mlp",
+        n_layers: int = 3,
+        d_hidden: int = 256,
         **kwargs: Any
     ) -> None:
         super().__init__(**kwargs)
@@ -377,6 +381,7 @@ class tabpfn_generator_plugin(Plugin):
             raise ValueError(f"Preprocessing {preprocessing} not supported")
         self.store_intermediate_data = store_intermediate_data
         self.store_animation_path = store_animation_path
+        self.store_false_data_path = store_false_data_path
         self.n_test_from_false_train = n_test_from_false_train
         self.n_random_features_to_add = n_random_features_to_add
         self.random_test_points_scale = random_test_points_scale
@@ -384,6 +389,9 @@ class tabpfn_generator_plugin(Plugin):
         self.init_scale_factor = init_scale_factor
         self.noise_std = noise_std
         self.use_wasserstein = use_wasserstein
+        self.model = model
+        self.n_layers = n_layers
+        self.d_hidden = d_hidden
         if store_animation_path is not None:
             assert store_intermediate_data, "store_intermediate_data must be True to store animation data"
         if store_intermediate_data:
@@ -421,8 +429,14 @@ class tabpfn_generator_plugin(Plugin):
         X_random_test = np.random.rand(self.n_random_test_samples, X.shape[1]) * 2 * self.random_test_points_scale - self.random_test_points_scale
         X_random_test = torch.tensor(X_random_test).float().to(self.device)
 
-        self.mlp_config = {"d_in": X_true.shape[1], "d_out": X_true.shape[1], "d_layers": [256, 256, 256], "dropout": 0.1}
-        self.generator_model = MLP.make_baseline(**self.mlp_config).to(self.device)
+        if self.model == "mlp": 
+            self.mlp_config = {"d_in": X_true.shape[1], "d_out": X_true.shape[1], "d_layers": [self.d_hidden]*self.n_layers, "dropout": 0.1}
+            self.generator_model = MLP.make_baseline(**self.mlp_config).to(self.device)
+        elif self.model == "resnet":
+            self.resnet_config = {"d_in": X_true.shape[1],
+                                   "d_out": X_true.shape[1], 
+                                   "n_blocks": self.n_layers, "d_main": self.d_hidden, "d_hidden": 2 * self.d_hidden, "dropout_first": 0.1, "dropout_second": 0.1}
+            self.generator_model = ResNet.make_baseline(**self.resnet_config).to(self.device)
 
         
         optimizer = torch.optim.Adam(self.generator_model.parameters(), lr=self.lr)
@@ -520,7 +534,8 @@ class tabpfn_generator_plugin(Plugin):
                 create_animation(self.all_X_false_train, X_true.detach().cpu().numpy(), self.store_animation_path,
                                     step=max(self.n_batches // 20, 5))
 
-                
+        if self.store_false_data_path is not None:
+            np.save(self.store_false_data_path, X_false_batch_train.detach().cpu().numpy())
         if not self.use_wasserstein:
             return tabpfn_output_proba.detach().cpu(), X_false_batch_train.detach().cpu(), y_test.detach().cpu()
         else:
