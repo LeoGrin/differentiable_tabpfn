@@ -453,6 +453,7 @@ class tabpfn_points_performance_plugin(Plugin):
         loss: str = "individual",
         opposite_loss: bool = False,
         n_points_to_create: int = 512,
+        random_test_points_scale: float = 2,
         **kwargs: Any
     ) -> None:
         super().__init__(**kwargs)
@@ -482,6 +483,7 @@ class tabpfn_points_performance_plugin(Plugin):
         self.loss = loss
         self.opposite_loss = opposite_loss
         self.n_points_to_create = n_points_to_create
+        self.random_test_points_scale = random_test_points_scale
         if store_animation_path is not None:
             assert store_intermediate_data, "store_intermediate_data must be True to store animation data"
         if store_intermediate_data:
@@ -624,10 +626,12 @@ class tabpfn_points_performance_plugin(Plugin):
             raise ValueError("Requested count exceeds the available data.")
         indices = np.random.choice(len(self.X_false_train), count, replace=False)
         false_points = self.X_false_train[indices].detach().cpu().numpy()
+        false_points_y = false_points[:, -1]
+        false_points_X = false_points[:, :-1]
         if self.preprocessor is not None:
-            return self.preprocessor.inverse_transform(false_points)
-        else:
-            return false_points
+            false_points_X = self.preprocessor.inverse_transform(false_points_X)
+        
+        return np.concatenate((false_points_X, false_points_y.reshape(-1, 1)), axis=1)
     
     def _generate(self, count: int, syn_schema: Schema, **kwargs: Any) -> pd.DataFrame:
         return self._safe_generate(self.sample, count, syn_schema)
