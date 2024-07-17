@@ -26,7 +26,7 @@ from imblearn.over_sampling import SMOTE
 from utils import create_animation
 from modules import ResNet, MLP
 import ot
-from sklearn.svm import SVC
+from sklearn.svm import SVC, NuSVC
 from sklearn.cluster import KMeans
 
 class gaussian_noise_plugin(Plugin):
@@ -472,12 +472,7 @@ class tabpfn_points_performance_plugin(Plugin):
         self.store_animation_path = store_animation_path
         self.n_test_from_false_train = n_test_from_false_train
         self.n_true_in_train_performance = n_true_in_train_performance
-        if initialization_strategy == "gaussian_noise":
-            self.initialization_strategy =  Plugins().get("gaussian_noise", strict=False)
-        elif initialization_strategy == "smote":
-            self.initialization_strategy =  Plugins().get("smote", strict=False)
-        else:   
-            self.initialization_strategy = initialization_strategy
+        self.initialization_strategy = initialization_strategy
         self.init_scale_factor = init_scale_factor
         self.noise_std = noise_std
         self.loss = loss
@@ -515,18 +510,18 @@ class tabpfn_points_performance_plugin(Plugin):
         if X_false_train_init is None:
             if self.initialization_strategy == "uniform":
                 X_false_train = (np.random.rand(n_points_to_create, X_true.shape[1]) * 2 * self.random_test_points_scale - self.random_test_points_scale) / self.init_scale_factor
-            elif self.initialization_strategy == "gaussian_noise":
-                #TODO use plugin to generate noise
-                indices = np.random.choice(X_true.shape[0], n_points_to_create, replace=False)
-                X_false_train = X_true[indices]
-                noise = np.random.normal(0, self.noise_std, X_false_train.shape)
-                X_false_train += noise
-            elif type(self.initialization_strategy) != str:
-                # in this case it should be a plugin
+            else:
+                if self.initialization_strategy == "gaussian_noise":
+                    self.initialization_strategy =  Plugins().get("gaussian_noise", strict=False)
+                elif self.initialization_strategy == "smote":
+                    self.initialization_strategy =  Plugins().get("smote", strict=False)
+                elif self.initialization_strategy == "kmeans":
+                    self.initialization_strategy =  Plugins().get("kmeans", strict=False, n_points_to_create=n_points_to_create)
+                else:
+                    assert type(self.initialization_strategy) != str, "Initialization strategy must be a string or a plugin"
+                    # in this case it should be a plugin
                 self.initialization_strategy.fit(pd.DataFrame(X_true))
                 X_false_train = self.initialization_strategy.generate(n_points_to_create).numpy()
-            else:
-                raise ValueError(f"Initialization strategy {self.initialization_strategy} not supported")
         else:
             X_false_train = X_false_train_init
         X_false_train = torch.tensor(X_false_train).float().to(self.device)
@@ -668,6 +663,62 @@ class svm_plugin(Plugin):
         ]
 
     def _fit(self, X: pd.DataFrame, **kwargs: Any) -> None:
+        X_true, y_true =  X.unpack(as_numpy=True)
+        self.svm.fit(X_true, y_true)
+
+    def sample(self, count: int, **kwargs: Any) -> pd.DataFrame:
+        support_vectors = self.svm.support_vectors_
+        y = self.svm.predict(support_vectors)
+        # concat support_vectors and y
+        X_false_train = np.concatenate((support_vectors, y.reshape(-1, 1)), axis=1)
+        if count > X_false_train.shape[0]:
+            raise ValueError("Requested count exceeds the available data.")
+        indices = np.random.choice(X_false_train.shape[0], count, replace=False)
+        return X_false_train[indices]
+    
+    def get_n_points_to_create(self) -> int:
+        return len(self.svm.support_vectors_)
+    
+    def _generate(self, count: int, syn_schema: Schema, **kwargs: Any) -> pd.DataFrame:
+        return self._safe_generate(self.sample, count, syn_schema)
+
+class nu_svm_plugin(Plugin):
+    """SVM integration in synthcity."""
+
+    def __init__(self, kernel: str = 'rbf', gamma: str = 'scale', nu="auto",
+                 n_points_to_create: int = 512, **kwargs: Any) -> None:
+        super().__init__(**kwargs)
+        self.kernel = kernel
+        self.gamma = gamma
+        self.nu = nu
+        self.n_points_to_create = n_points_to_create
+    
+    @staticmethod
+    def name() -> str:
+        return "nu_svm"
+    
+    @staticmethod
+    def type() -> str:
+        return "debug"
+
+    @staticmethod
+    def hyperparameter_space(**kwargs: Any) -> List[Distribution]:
+        """
+        We can customize the hyperparameter space, and use it in AutoML benchmarks.
+        """
+        #TODO
+        return [
+            IntegerDistribution(name="embedding_n_units", low=100, high=500, step=50),
+            IntegerDistribution(name="batch_size", low=100, high=300, step=50),
+            IntegerDistribution(name="n_iter", low=100, high=500, step=50),
+        ]
+
+    def _fit(self, X: pd.DataFrame, **kwargs: Any) -> None:
+        if self.nu == "auto":
+            # have self.nu * len(X) == self.n_points_to_create
+            self.nu = self.n_points_to_create / len(X)
+            print(f"NuSVC: nu={self.nu}")
+        self.svm = NuSVC(kernel=self.kernel, gamma=self.gamma, nu=self.nu)
         X_true, y_true =  X.unpack(as_numpy=True)
         self.svm.fit(X_true, y_true)
 
@@ -1133,4 +1184,5 @@ generators.add("smote_imblearn", smote_imblearn_plugin)
 generators.add("gaussian_noise", gaussian_noise_plugin)
 generators.add("oracle", oracle_plugin)
 generators.add("svm", svm_plugin)
+generators.add("nu_svm", nu_svm_plugin)
 generators.add("kmeans", kmeans_plugin)

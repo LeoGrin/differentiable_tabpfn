@@ -114,9 +114,9 @@ def run_model_on_dataset(model_name, task_id, n_synthetic_points=512, results_ba
 
     score = pd.DataFrame(score)
 
-    if model_name == "svm":
+    if model_name in ["svm", "nu_svm"]:
         # do one pass just to get the number of points
-        svm_plugin = Plugins().get("svm", C=hp_dic["C"])#TODO all params
+        svm_plugin = Plugins().get(model_name, **hp_dic)#TODO all params
         svm_plugin.fit(loader)
         n_synthetic_points = svm_plugin.get_n_points_to_create()
         print(f"Number of points to create: {n_synthetic_points}")
