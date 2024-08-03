@@ -521,7 +521,7 @@ class tabpfn_points_performance_plugin(Plugin):
                     assert type(self.initialization_strategy) != str, "Initialization strategy must be a string or a plugin"
                     # in this case it should be a plugin
                 self.initialization_strategy.fit(pd.DataFrame(X_true))
-                X_false_train = self.initialization_strategy.generate(n_points_to_create).numpy()
+                X_false_train = self.initialization_strategy.sample(n_points_to_create)
         else:
             X_false_train = X_false_train_init
         X_false_train = torch.tensor(X_false_train).float().to(self.device)
@@ -543,7 +543,7 @@ class tabpfn_points_performance_plugin(Plugin):
         labels = torch.unique(y_true)
         #TODO check ordinal encoded labels
         for label in labels:
-            self.X_false_train_list.append(self._create_init_points(self.n_points_to_create // len(labels), X_true, X_false_train_init))
+            self.X_false_train_list.append(self._create_init_points(self.n_points_to_create // len(labels), X_true[y_true == label], X_false_train_init))
         
 
 
@@ -741,10 +741,12 @@ class nu_svm_plugin(Plugin):
 class kmeans_plugin(Plugin):
     """KMeans integration in synthcity."""
 
-    def __init__(self, n_points_to_create: int = 8, **kwargs: Any) -> None:
+    def __init__(self, n_points_to_create: int = 8, separate_target: bool = False, **kwargs: Any) -> None:
         super().__init__(**kwargs)
         self.n_points_to_create = n_points_to_create
+        print("n_points_to_create", self.n_points_to_create)
         self.kmeans = KMeans(n_clusters=self.n_points_to_create)
+        self.separate_target = separate_target
     
     @staticmethod
     def name() -> str:
@@ -765,14 +767,19 @@ class kmeans_plugin(Plugin):
         ]
 
     def _fit(self, X: pd.DataFrame, **kwargs: Any) -> None:
-        X_true, y_true = X.unpack(as_numpy=True)
+        if self.separate_target:
+            X_true, y_true = X.unpack(as_numpy=True)
+        else:
+            X_true = X.numpy()
+        print("X_true", X_true.shape)
         self.kmeans.fit(X_true)
-        self.cluster_labels = np.zeros(self.n_points_to_create)
-        # for each cluster, assign a label
-        for cluster_label in range(self.n_points_to_create):
-            cluster_indices = np.where(self.kmeans.labels_ == cluster_label)[0]
-            cluster_labels, counts = np.unique(y_true[cluster_indices], return_counts=True)
-            self.cluster_labels[cluster_label] = cluster_labels[np.argmax(counts)]
+        if self.separate_target:
+            self.cluster_labels = np.zeros(self.n_points_to_create)
+            # for each cluster, assign a label
+            for cluster_label in range(self.n_points_to_create):
+                cluster_indices = np.where(self.kmeans.labels_ == cluster_label)[0]
+                cluster_labels, counts = np.unique(y_true[cluster_indices], return_counts=True)
+                self.cluster_labels[cluster_label] = cluster_labels[np.argmax(counts)]
         
     def sample(self, count: int, **kwargs: Any) -> pd.DataFrame:
         cluster_centers = self.kmeans.cluster_centers_
@@ -780,8 +787,11 @@ class kmeans_plugin(Plugin):
             raise ValueError("Requested count exceeds the available data.")
         indices = np.random.choice(len(cluster_centers), count, replace=False)
         X_false = cluster_centers[indices]
-        y_false = self.cluster_labels[indices]
-        return np.concatenate((X_false, y_false.reshape(-1, 1)), axis=1)
+        if self.separate_target:
+            y_false = self.cluster_labels[indices]
+            return np.concatenate((X_false, y_false.reshape(-1, 1)), axis=1)
+        else:
+            return X_false
     
     def _generate(self, count: int, syn_schema: Schema, **kwargs: Any) -> pd.DataFrame:
         return self._safe_generate(self.sample, count, syn_schema)
