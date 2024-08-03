@@ -543,7 +543,7 @@ class tabpfn_points_performance_plugin(Plugin):
         labels = torch.unique(y_true)
         #TODO check ordinal encoded labels
         for label in labels:
-            self.X_false_train_list.append(self._create_init_points(self.n_points_to_create // len(labels), X_true[y_true == label], X_false_train_init))
+            self.X_false_train_list.append(self._create_init_points(self.n_points_to_create // len(labels), X_true[y_true.cpu() == label], X_false_train_init))
         
 
 
