@@ -536,6 +536,7 @@ class tabpfn_points_performance_plugin(Plugin):
         if self.preprocessor is not None:
             X_true = self.preprocessor.fit_transform(X_true) # all numerical features for now
 
+        y_true = torch.tensor(y_true).long()
         # in this case we generate one X_false_train for each label
         self.X_false_train_list = []
         labels = torch.unique(y_true)
@@ -543,8 +544,7 @@ class tabpfn_points_performance_plugin(Plugin):
         for label in labels:
             self.X_false_train_list.append(self._create_init_points(self.n_points_to_create // len(labels), X_true[y_true == label], X_false_train_init))
 
-        # make y_true a tensor
-        y_true = torch.tensor(y_true).long().to(self.device)
+        y_true = y_true.to(self.device)
         X_true = torch.tensor(X_true, dtype=torch.float32).to(self.device)
 
         optimizer = torch.optim.Adam(self.X_false_train_list, lr=self.lr)
