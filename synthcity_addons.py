@@ -532,8 +532,6 @@ class tabpfn_points_performance_plugin(Plugin):
         X_true, y_true =  X.unpack(as_numpy=True)
         # save proportions of classes
         self.class_proportions = np.unique(y_true, return_counts=True)[1] / len(y_true)
-        # make y_true a tensor
-        y_true = torch.tensor(y_true).long().to(self.device)
 
         if self.preprocessor is not None:
             X_true = self.preprocessor.fit_transform(X_true) # all numerical features for now
@@ -543,10 +541,10 @@ class tabpfn_points_performance_plugin(Plugin):
         labels = torch.unique(y_true)
         #TODO check ordinal encoded labels
         for label in labels:
-            self.X_false_train_list.append(self._create_init_points(self.n_points_to_create // len(labels), X_true[y_true.cpu() == label], X_false_train_init))
-        
+            self.X_false_train_list.append(self._create_init_points(self.n_points_to_create // len(labels), X_true[y_true == label], X_false_train_init))
 
-
+        # make y_true a tensor
+        y_true = torch.tensor(y_true).long().to(self.device)
         X_true = torch.tensor(X_true, dtype=torch.float32).to(self.device)
 
         optimizer = torch.optim.Adam(self.X_false_train_list, lr=self.lr)
