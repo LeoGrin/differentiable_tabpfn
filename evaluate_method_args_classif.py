@@ -53,7 +53,8 @@ def run_model_on_dataset(model_name, task_id, n_synthetic_points=512, results_ba
     X = X.iloc[:, -30:]
     print(X)
     # take 1024 random rows from X
-    indices = np.random.choice(X.index, 1024, replace=False)
+    rng = np.random.RandomState(42)
+    indices = rng.choice(X.index, 1024, replace=False)
     X_ref = X.loc[indices]
     X = X.drop(index=indices)
 
@@ -81,14 +82,15 @@ def run_model_on_dataset(model_name, task_id, n_synthetic_points=512, results_ba
         hp_dic["store_intermediate_data"] = True
 
 
-
+    #hp_dic["n_points_to_create"] = n_synthetic_points
     score = Benchmarks.evaluate(
         [(model_name, model_name, hp_dic)],
         loader,
         X_ref=loader_ref,
         synthetic_size=synthetic_size,
-        repeats=3,
+        repeats=6,
         task_type=task_type,
+        verbose=100,
         metrics = {
                     'sanity': ['data_mismatch', 'common_rows_proportion', 'close_values_probability', 'distant_values_probability',
                                'nearest_syn_neighbor_distance', "nearest_real_neighbor_distance",
@@ -97,7 +99,7 @@ def run_model_on_dataset(model_name, task_id, n_synthetic_points=512, results_ba
                                 "nearest_real_neighbor_distance_on_train", "nearest_syn_neighbor_distance_on_train"
                                ],
                     'stats': ['jensenshannon_dist', 'chi_squared_test', 'feature_corr', 'inv_kl_divergence', 'ks_test', 'max_mean_discrepancy', 'wasserstein_dist', 'prdc', 'alpha_precision', 'survival_km_distance'],
-                    'performance': ['xgb', "mlp"],
+                    'performance': ['xgb', "mlp", "tabpfn", "mlp_bigger", "xgb_default"],
                     'detection': ['detection_xgb'],
                     'privacy': ['delta-presence', 'k-anonymization', 'k-map', 'distinct l-diversity', 'identifiability_score']
                 }
