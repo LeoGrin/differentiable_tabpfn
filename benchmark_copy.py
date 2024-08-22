@@ -1,5 +1,5 @@
 import pickle
-#import submitit
+import submitit
 
 # synthcity absolute
 from synthcity.benchmark import Benchmarks
@@ -22,15 +22,15 @@ cpu_models = ["arf", "smote", "forest_diffusion", "smote_imblearn", "gaussian_no
 #cpu_models = ["gaussian_noise"]
 
 
-# executor_gpu = submitit.AutoExecutor(folder="submitit_logs")
-# executor_gpu.update_parameters(timeout_min=2000, slurm_partition='parietal,normal,gpu-best,gpu', slurm_array_parallelism=5,#, cpus_per_task=2,
-#                                     gpus_per_node=1)
-# # executor.update_parameters(timeout_min=2000, slurm_partition='parietal,normal', slurm_array_parallelism=array_parallelism, cpus_per_task=2,
-# #                             exclude="margpu009")
-# executor_cpu = submitit.AutoExecutor(folder="submitit_logs")
-# executor_cpu.update_parameters(
-#                                         timeout_min=2000, slurm_partition='parietal,normal', slurm_array_parallelism=100,#, cpus_per_task=2,
-#                                         cpus_per_task=4, exclude="margpu009")
+executor_gpu = submitit.AutoExecutor(folder="submitit_logs")
+executor_gpu.update_parameters(timeout_min=2000, slurm_partition='parietal,normal,gpu-best,gpu', slurm_array_parallelism=5,#, cpus_per_task=2,
+                                    gpus_per_node=1)
+# executor.update_parameters(timeout_min=2000, slurm_partition='parietal,normal', slurm_array_parallelism=array_parallelism, cpus_per_task=2,
+#                             exclude="margpu009")
+executor_cpu = submitit.AutoExecutor(folder="submitit_logs")
+executor_cpu.update_parameters(
+                                        timeout_min=2000, slurm_partition='parietal,normal', slurm_array_parallelism=100,#, cpus_per_task=2,
+                                        cpus_per_task=4, exclude="margpu009")
 
 
 def run_model_on_dataset(model_name, task_id, hp_dic, save_results=True):
@@ -43,7 +43,7 @@ def run_model_on_dataset(model_name, task_id, hp_dic, save_results=True):
     hp_str = "_".join([f"{k}_{v}" for k, v in hp_dic.items()]) # before it's modified by synthcity
     X, y, _, _ = dataset.get_data(target=dataset.default_target_attribute)
     # add target to X
-    #X["target"] = y
+    X["target"] = y
     # restrict X to 20K random samples
     if X.shape[0] > 20000:
         X = X.sample(20000, random_state=42)
@@ -54,7 +54,7 @@ def run_model_on_dataset(model_name, task_id, hp_dic, save_results=True):
     normalization = hp_dic.pop("normalization", None)
     if normalization == "quantile":
         X = QuantileTransformer(n_quantiles=100, random_state=42).fit_transform(X)
-    loader = GenericDataLoader(X)#, #target_column="target")
+    loader = GenericDataLoader(X, target_column="target")
 
     print("Loaded")
 
@@ -103,29 +103,29 @@ def run_model_on_dataset(model_name, task_id, hp_dic, save_results=True):
 
 hps = {"normalization": "quantile"}
 
-# with executor_gpu.batch():
-#     for model in gpu_models:
-#         for task_id in tasks:
-#             #hp_dic = {"n_permutations": n_permutations, "n_ensembles": n_ensembles}
-#             hp_dic = {}
-#             hp_dic.update(hps)
-#             executor_gpu.submit(run_model_on_dataset, model, task_id, hp_dic)
+with executor_gpu.batch():
+    for model in gpu_models:
+        for task_id in tasks:
+            #hp_dic = {"n_permutations": n_permutations, "n_ensembles": n_ensembles}
+            hp_dic = {}
+            hp_dic.update(hps)
+            executor_gpu.submit(run_model_on_dataset, model, task_id, hp_dic)
 
-# with executor_cpu.batch():
-#     #for model in ["gaussian_noise"]:
-#         #for noise_std in [0.0000001]
-#     for model in cpu_models:
-#         for task_id in tasks:
-#             #hp_dic = {"noise_std": noise_std}
-#             hp_dic = {}
-#             hp_dic.update(hps)
-#             executor_cpu.submit(run_model_on_dataset, model, task_id, hp_dic)
+with executor_cpu.batch():
+    #for model in ["gaussian_noise"]:
+        #for noise_std in [0.0000001]
+    for model in cpu_models:
+        for task_id in tasks:
+            #hp_dic = {"noise_std": noise_std}
+            hp_dic = {}
+            hp_dic.update(hps)
+            executor_cpu.submit(run_model_on_dataset, model, task_id, hp_dic)
 
-if __name__ == "__main__":
-    hp_dic = {}#{"n_batches": 10}
-    score, score_train = run_model_on_dataset("tabpfn_points", tasks[0], hp_dic, save_results=False)
-    print(score["tabpfn_points"])
-    print(score["tabpfn_points"].columns)
-    print(score["tabpfn_points"].index)
-    print(score_train["tabpfn_points"])
+# if __name__ == "__main__":
+#     hp_dic = {}#{"n_batches": 10}
+#     score, score_train = run_model_on_dataset("tabpfn_points", tasks[0], hp_dic, save_results=False)
+#     print(score["tabpfn_points"])
+#     print(score["tabpfn_points"].columns)
+#     print(score["tabpfn_points"].index)
+#     print(score_train["tabpfn_points"])
 

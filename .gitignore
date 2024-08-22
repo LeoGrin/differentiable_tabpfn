@@ -4,6 +4,9 @@ submitit_logs/
 *.pickle
 results/
 results_with_y
+results_classif
+results_generator
 __pycache__
 figures
 workspace
+*.mp4
