@@ -3,6 +3,8 @@ submitit_logs/
 *.pickle
 *.pickle
 results/
+results_generator/
+results_classif/
 results_with_y
 __pycache__
 figures
